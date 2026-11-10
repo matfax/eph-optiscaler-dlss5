@@ -135,6 +135,18 @@ jobs:
         echo "Version: ${{ steps.get_version.outputs.version }}"
         echo "Filename: ${{ steps.get_version.outputs.filename }}"
         
+    # The DLSS 5 look shader is compiled here, with the repo's own dxc: the build embeds DlssNr_Look_Shader.h.
+    # Always rebuilt from dlssnr_look.hlsl, so an edit to the shader is picked up.
+    - name: Compile the DLSS 5 look shader
+      working-directory: ${{ github.workspace }}\OptiScaler\shaders\dlssnr\precompile
+      shell: pwsh
+      run: |
+        & ..\..\shader_tools\dxc.exe -T cs_6_0 -E CSMain -O3 -Qstrip_debug -Qstrip_reflect dlssnr_look.hlsl -Fo DlssNr_Look_Shader.cso
+        if ($LASTEXITCODE -ne 0) { Write-Error "dxc failed ($LASTEXITCODE)"; exit 1 }
+        python ..\..\shader_tools\create_header.py DlssNr_Look_Shader.cso DlssNr_Look_Shader.h DlssNrLook_cso
+        if (-Not (Test-Path DlssNr_Look_Shader.h)) { Write-Error "DlssNr_Look_Shader.h was not written"; exit 1 }
+        Get-Item DlssNr_Look_Shader.cso, DlssNr_Look_Shader.h | Format-Table Name, Length
+
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v3
 

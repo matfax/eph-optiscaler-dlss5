@@ -1,8 +1,13 @@
-"""Fit the edit cache's multi-pass gains from real one-pass and two-pass captures.
+"""Fit multi-pass gains from real one-pass and two-pass captures.
 
-Running the model twice (feeding it its own output) costs twice as much. The cache can instead amplify
-a single pass's edit, with separate gains on its low band (lighting, tone) and high band (detail), in
-log space. This finds the gains that make one pass look most like two.
+Running the model twice (feeding it its own output) costs twice as much. A single pass's edit can instead
+be amplified, with separate gains on its low band (lighting, tone) and high band (detail), in log space.
+This finds the gains that make one pass look most like two.
+
+The gains were the edit cache's CacheLowGain / CacheHighGain; they are the look stage's LookTone /
+LookDetail now, and are printed under those names. The look splits differently -- only the achromatic
+edit, by a guided filter at LookDetailRadius, where this fit splits every channel with the cache's
+pyramid (or a Gaussian, --sigma) -- so the result is a starting point, not an exact equivalent.
 
 You need the same frame three times -- held still, so only the pass count differs:
   orig   the frame without Neural Rendering
@@ -108,9 +113,10 @@ def main():
         print(f"  frame {i}: |one pass - two passes| {err_one:.4f} stops -> |fitted - two passes| {err_fit:.4f} "
               f"({100 * (1 - err_fit / max(err_one, 1e-12)):.0f}% of the gap closed)")
 
-    print("\nOptiScaler.ini, [DlssNr]:")
-    print(f"CacheLowGain={g_low:.3f}")
-    print(f"CacheHighGain={g_high:.3f}")
+    # The look's range is 0-2.
+    print("\nOptiScaler.ini, [DlssNr] (the look's tone and detail; a starting point, see the docstring):")
+    print(f"LookTone={min(max(g_low, 0.0), 2.0):.3f}")
+    print(f"LookDetail={min(max(g_high, 0.0), 2.0):.3f}")
 
 
 if __name__ == "__main__":
