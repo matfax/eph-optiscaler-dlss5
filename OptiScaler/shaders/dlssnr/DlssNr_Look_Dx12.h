@@ -29,7 +29,7 @@ struct DlssNrLookSettings
     float highlights = 1.0f;
     float tone = 1.0f;
     float detail = 1.0f;
-    float detailRadius = 1.0f; // percent of the model's working height
+    float detailRadius = 1.0f;      // percent of the model's working height
     float shadowMaxBrighten = 0.0f; // soft limits on the brightness change in shadows, stops, 0 = none
     float shadowMaxDarken = 0.0f;
     uint32_t blackRestore = 0; // 0 off, 1 near-black blocks, 2 near-black blocks with a smooth taper
