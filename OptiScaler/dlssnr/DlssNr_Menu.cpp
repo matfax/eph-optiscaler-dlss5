@@ -522,12 +522,9 @@ static void GroupLookAdjust(Config* config)
     LiveSlider("Shadow max brightening", &config->DlssNrLookShadowMaxBrighten, 0.0f, 4.0f, 0.5f, "%.2f stops");
     LiveSlider("Shadow max darkening", &config->DlssNrLookShadowMaxDarken, 0.0f, 4.0f, 1.0f, "%.2f stops");
     HelpMarker("Soft limits on how far the model may brighten or darken a shadow, faded in by"
-               "
-the same zone as Shadows. The model's answer goes back as a ratio, so a tiny"
-               "
-lift in a dark pixel is a large ratio -- this is what keeps shadows from"
-               "
-doubling. 0 means no limit. Defaults 0.5 and 1 stop.");
+               "\nthe same zone as Shadows. The model's answer goes back as a ratio, so a tiny"
+               "\nlift in a dark pixel is a large ratio -- this is what keeps shadows from"
+               "\ndoubling. 0 means no limit. Defaults 0.5 and 1 stop.");
 
     static const char* blackNames[] = { "Off", "Near-black areas", "Near-black areas, smooth edge" };
     int black = (int) std::min(config->DlssNrLookBlackRestore.value_or_default(), 2u);
@@ -535,14 +532,10 @@ doubling. 0 means no limit. Defaults 0.5 and 1 stop.");
         config->DlssNrLookBlackRestore = (uint32_t) black;
 
     HelpMarker("The model lifts black level. In areas that are near-black in the game's own"
-               "
-frame, this measures how much brighter the model made them and takes it off"
-               "
-again (at most 0.025). Not elsewhere: there the difference is the model's real"
-               "
-edit, and taking it off would flicker. The smooth edge fades it out instead of"
-               "
-switching at the threshold (default). From RenoDX's SDR black restore.");
+               "\nframe, this measures how much brighter the model made them and takes it off"
+               "\nagain (at most 0.025). Not elsewhere: there the difference is the model's real"
+               "\nedit, and taking it off would flicker. The smooth edge fades it out instead of"
+               "\nswitching at the threshold (default). From RenoDX's SDR black restore.");
 
     ImGui::SeparatorText("Detail");
 
@@ -1906,13 +1899,9 @@ static void GroupModel(Config* config)
     DeferredSlider("Local tone", &config->DlssNrLocalTone, 0.0f, 2.0f, 0.5f);
 
     HelpMarker("Mostly broad relighting, not detail: the model replaces the game's own darkening"
-               "
-(ambient occlusion, contact shadows) with its own idea of the light. Default 0.5,"
-               "
-as NVIDIA ships it in Hogwarts Legacy (RTX Remix uses 0.3); 1 is the model's own."
-               "
-Local structure is what adds occlusion detail.");
-
+               "\n(ambient occlusion, contact shadows) with its own idea of the light. Default 0.5,"
+               "\nas NVIDIA ships it in Hogwarts Legacy (RTX Remix uses 0.3); 1 is the model's own."
+               "\nLocal structure is what adds occlusion detail.");
 
     DeferredSlider("Skin structure", &config->DlssNrSkinStructure, -1.0f, 2.0f, -1.0f);
 
