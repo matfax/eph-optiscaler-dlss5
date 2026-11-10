@@ -1,10 +1,11 @@
 // The look stage: reshapes what the model did before the resolve sees it.
 //
 // The model's answer N and the proxy P it was shown are both at the model's working resolution and in the
-// same encoding (sRGB over the white point, or the frame as it was in passthrough). The model's EDIT is
-// e = log2(N / P) per channel, in stops; this stage rewrites it to e' and writes N' = N * 2^(t * (e' - e)),
-// which the resolve, the JBU and the edit cache then take in place of N. With every gain at its identity
-// e' == e and N' is N, which is why the pass is skipped altogether then.
+// same encoding: sRGB over the white point, or in passthrough the game's already tone-mapped frame, which is
+// display-encoded and decoded the same way (without the clamp at 1). The model's EDIT is e = log2(N / P) per
+// channel, in stops of linear light; this stage rewrites it to e' and writes N' = N * 2^(t * (e' - e)), which
+// the resolve, the JBU and the edit cache then take in place of N. With every gain at its identity e' == e and
+// N' is N, which is why the pass is skipped altogether then.
 //
 // The edit is split three ways, all in stops:
 //
@@ -24,16 +25,21 @@
 // Two corrections for the model's habits in the dark, both in this pass because both reshape its answer, and
 // below the soft knee the proxy is the frame, so N' / P here is the finished picture's ratio to the frame:
 //
-//   shadow limits  soft limits, in stops, on how far the model may brighten or darken a shadow. The resolve
-//                  puts the answer back as a ratio, so a tiny absolute lift in a shadow (0.002 -> 0.006) is a
-//                  large ratio (3x) that the ratio floor and the 2x guard only partly tame.
+//   shadow limits  soft limits, in stops, on how far the answer may brighten or darken a shadow against the
+//                  proxy. The resolve puts the answer back as a ratio, so a tiny absolute lift in a shadow
+//                  (0.002 -> 0.006) is a large ratio (3x) that the ratio floor and the 2x guard only partly
+//                  tame. They act on the edit the output really has, after the floor trust: the trust fades
+//                  the gains out exactly where shadows are darkest, and a limit weighted by it would do
+//                  nothing there. At a limit of 0.5 stop that 3x lift is written back as 1.41x.
 //   black restore  the model lifts black level. Per 32x32 block, the lift of the answer over the proxy is
-//                  measured and subtracted again, up to 0.025 in the encoded values -- only
-//                  in near-black blocks, because elsewhere the "lift" is the model's own edit plus zero-mean
-//                  noise, and clamping that at zero turns it into per-block darkening that flickers. It is
-//                  measured on the answer as this pass shapes it, after the shadow limits, so a lift those
-//                  already held back is not taken off a second time (which would crush the black below the
-//                  frame's own).
+//                  measured and subtracted again, up to 0.025 in the encoded values -- only in near-black
+//                  blocks, because elsewhere the "lift" is the model's own edit plus zero-mean noise, and
+//                  clamping that at zero turns it into per-block darkening that flickers. It is measured on
+//                  the answer as this pass shapes it, after the shadow limits, so a lift those already held
+//                  back is not taken off a second time (which would crush the black below the frame's own).
+//                  Never down to an exact zero: the resolve reads a black answer as one the model could not
+//                  give and hands back the frame's own pixel. Passthrough frames only, as in RenoDX, where
+//                  it is an SDR-only pass; the host does not enable it otherwise.
 //
 // Taken from RenoDX's DLSS 5 addon (clshortfuse, https://github.com/clshortfuse/renodx, as maintained in
 // https://github.com/williamstosh/RenoDX-DLSSNR-Nexus): its look stage's edit split, guided-filter band
@@ -99,8 +105,11 @@ static const float  kLog2Grey = -2.4739312; // log2(0.18)
 
 // The black restore's numbers, RenoDX's: at most 0.025 is taken back, and only in blocks whose brightest
 // untouched pixel is below 0.061 -- the sRGB encoding of 0.005 of paper white -- all in the encoded values.
+// It stops at 1/1024 (encoded), well above the resolve's empty-answer threshold, or at the pixel's own value
+// where that is lower.
 static const float  kPedestalCap = 0.025;
 static const float  kDarkGate = 0.061;
+static const float  kRestoreFloor = 1.0 / 1024.0;
 static const uint   kBlock = 32;
 
 groupshared float sBlockN[64];
@@ -120,8 +129,22 @@ float3 LinearToSrgb(float3 v)
     return lerp(v * 12.92, 1.055 * pow(max(v, 1e-8), 1.0 / 2.4) - 0.055, step(0.0031308, v));
 }
 
-float3 Decode(float3 v) { return gPassthrough != 0 ? max(v, 0.0) : SrgbToLinear(v); }
-float3 Encode(float3 v) { return gPassthrough != 0 ? max(v, 0.0) : LinearToSrgb(v); }
+// The same curve without the clamp at 1, for a passthrough frame: it is display-encoded, but a tone-mapped
+// frame in a float buffer may still carry values above 1, which must come back as they went in.
+float3 SrgbToLinearOpen(float3 v)
+{
+    v = max(v, 0.0);
+    return lerp(v / 12.92, pow((v + 0.055) / 1.055, 2.4), step(0.04045, v));
+}
+
+float3 LinearToSrgbOpen(float3 v)
+{
+    v = max(v, 0.0);
+    return lerp(v * 12.92, 1.055 * pow(max(v, 1e-8), 1.0 / 2.4) - 0.055, step(0.0031308, v));
+}
+
+float3 Decode(float3 v) { return gPassthrough != 0 ? SrgbToLinearOpen(v) : SrgbToLinear(v); }
+float3 Encode(float3 v) { return gPassthrough != 0 ? LinearToSrgbOpen(v) : LinearToSrgb(v); }
 
 // How far the edit at this pixel can be trusted: nothing at black, where the ratio is a ratio of noise.
 float FloorTrust(float3 p)
@@ -209,16 +232,6 @@ float3 ShapeEdit(Edit x, float aB, float aD)
     if (a < 0.0 && gMaxDarken > 0.0)
         a = SoftLimit(a, gMaxDarken);
 
-    // The shadow limits, faded in by the same zone weight the shadows gain uses: a shadow is held to them,
-    // a midtone is free, and the crossover between them is the zone's own.
-    const float wSh = ShadowWeight(x.I);
-
-    if (a > 0.0 && gShadowMaxBrighten > 0.0)
-        a = lerp(a, SoftLimit(a, gShadowMaxBrighten), wSh);
-
-    if (a < 0.0 && gShadowMaxDarken > 0.0)
-        a = lerp(a, SoftLimit(a, gShadowMaxDarken), wSh);
-
     if (gMaxColour > 0.0)
     {
         const float norm = sqrt(dot(kW, c * c));
@@ -280,6 +293,21 @@ float Pedestal(int2 pixel)
     return clamp(m.x - m.y, 0.0, kPedestalCap) * weight;
 }
 
+// The shadow limits on the achromatic edit the output has, faded in by the same zone weight the shadows gain
+// uses: a shadow is held to them, a midtone is free, and the crossover between them is the zone's own.
+float ShadowLimited(float a, float I)
+{
+    const float wSh = ShadowWeight(I);
+
+    if (a > 0.0 && gShadowMaxBrighten > 0.0)
+        return lerp(a, SoftLimit(a, gShadowMaxBrighten), wSh);
+
+    if (a < 0.0 && gShadowMaxDarken > 0.0)
+        return lerp(a, SoftLimit(a, gShadowMaxDarken), wSh);
+
+    return a;
+}
+
 // The answer at a pixel as this pass shapes it, encoded, before the black restore. Shared by the block pass,
 // which measures what is left of the lift, and the compose, which writes it.
 float4 Shaped(int2 pixel)
@@ -295,8 +323,13 @@ float4 Shaped(int2 pixel)
         aD = x.a - aB;
     }
 
-    const float3 shaped = ShapeEdit(x, aB, aD);
-    return float4(Encode(x.n * exp2(x.t * (shaped - x.e))), x.alpha);
+    // What the output is changed by, in stops per channel: the gains, faded out by the floor trust, then the
+    // shadow limits on the achromatic edit that leaves the output with, applied to every channel alike.
+    float3 delta = x.t * (ShapeEdit(x, aB, aD) - x.e);
+    const float aOut = x.a + dot(kW, delta);
+    delta += ShadowLimited(aOut, x.I) - aOut;
+
+    return float4(Encode(x.n * exp2(delta)), x.alpha);
 }
 
 [numthreads(8, 8, 1)]
@@ -369,7 +402,7 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thre
 
         // The lift is taken off what is written, in the encoded values it was measured in, as RenoDX does.
         if (gBlackRestore != 0)
-            value.rgb = max(value.rgb - Pedestal(pixel), 0.0);
+            value.rgb = max(value.rgb - Pedestal(pixel), min(value.rgb, kRestoreFloor));
 
         gTarget[pixel] = value;
         return;

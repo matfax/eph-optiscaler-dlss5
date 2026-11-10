@@ -186,45 +186,65 @@ void DlssNrLook_Dx12::ReleaseResources()
     _format = DXGI_FORMAT_UNKNOWN;
 }
 
-bool DlssNrLook_Dx12::EnsureResources(ID3D12Device* device, DXGI_FORMAT format, unsigned int width, unsigned int height)
+bool DlssNrLook_Dx12::EnsureResources(ID3D12Device* device, DXGI_FORMAT format, unsigned int width, unsigned int height,
+                                      bool bands)
 {
-    if (_width == width && _height == height && _format == format && _output != nullptr)
-        return true;
-
-    if (_width != 0)
-        LOG_INFO("DLSS-NR look: {}x{} -> {}x{}, rebuilding", _width, _height, width, height);
-
-    Retire(_output);
-    Retire(_bandA);
-    Retire(_bandB);
-    Retire(_blocks);
-
-    const unsigned int halfWidth = (width + 1) / 2;
-    const unsigned int halfHeight = (height + 1) / 2;
-
-    // 32-bit, because the variance is a difference of two nearly equal means of squares.
-    _output = CreateTexture(device, format, width, height);
-    _bandA = CreateTexture(device, DXGI_FORMAT_R32G32B32A32_FLOAT, halfWidth, halfHeight);
-    _bandB = CreateTexture(device, DXGI_FORMAT_R32G32B32A32_FLOAT, halfWidth, halfHeight);
-    _blocks = CreateTexture(device, DXGI_FORMAT_R32G32B32A32_FLOAT, (width + kBlock - 1) / kBlock,
-                            (height + kBlock - 1) / kBlock);
-
-    if (_output == nullptr || _bandA == nullptr || _bandB == nullptr || _blocks == nullptr)
+    if (_width != width || _height != height || _format != format)
     {
-        LOG_ERROR("DLSS-NR look: could not allocate its textures at {}x{} (format {})", width, height, (int) format);
+        // A size and format that could not be allocated is not retried every frame.
+        if (_failedWidth == width && _failedHeight == height && _failedFormat == format)
+            return false;
+
+        if (_width != 0)
+            LOG_INFO("DLSS-NR look: {}x{} -> {}x{}, rebuilding", _width, _height, width, height);
+
         Retire(_output);
+        Retire(_blocks);
         Retire(_bandA);
         Retire(_bandB);
+
+        _output = CreateTexture(device, format, width, height);
+        _blocks = CreateTexture(device, DXGI_FORMAT_R32G32B32A32_FLOAT, (width + kBlock - 1) / kBlock,
+                                (height + kBlock - 1) / kBlock);
+        _width = width;
+        _height = height;
+        _format = format;
+    }
+
+    // The band textures are full size only while tone or detail needs them, and a stand-in texel otherwise. 32-bit,
+    // because the variance is a difference of two nearly equal means of squares.
+    if (_output != nullptr && _blocks != nullptr && (_bandA == nullptr || _bandsFull != bands))
+    {
+        Retire(_bandA);
+        Retire(_bandB);
+        const unsigned int bandWidth = bands ? (width + 1) / 2 : 1;
+        const unsigned int bandHeight = bands ? (height + 1) / 2 : 1;
+        _bandA = CreateTexture(device, DXGI_FORMAT_R32G32B32A32_FLOAT, bandWidth, bandHeight);
+        _bandB = CreateTexture(device, DXGI_FORMAT_R32G32B32A32_FLOAT, bandWidth, bandHeight);
+        _bandsFull = bands;
+    }
+
+    if (_output == nullptr || _blocks == nullptr || _bandA == nullptr || _bandB == nullptr)
+    {
+        LOG_ERROR("DLSS-NR look: could not allocate its textures at {}x{} (format {}), the model's answer is used as "
+                  "it is",
+                  width, height, (int) format);
+        Retire(_output);
         Retire(_blocks);
+        Retire(_bandA);
+        Retire(_bandB);
+        _failedWidth = width;
+        _failedHeight = height;
+        _failedFormat = format;
         _width = 0;
         _height = 0;
         _format = DXGI_FORMAT_UNKNOWN;
         return false;
     }
 
-    _width = width;
-    _height = height;
-    _format = format;
+    _failedWidth = 0;
+    _failedHeight = 0;
+    _failedFormat = DXGI_FORMAT_UNKNOWN;
     return true;
 }
 
@@ -260,11 +280,24 @@ ID3D12Resource* DlssNrLook_Dx12::Apply(ID3D12GraphicsCommandList* cmd, ID3D12Dev
 {
     TickRetired();
 
+    // The black restore is an SDR pass, as in RenoDX: on a passthrough (already tone-mapped) frame only.
+    DlssNrLookSettings settings = look;
+
+    if (!passthrough)
+        settings.blackRestore = 0;
+
     if (!_init || cmd == nullptr || device == nullptr || proxy == nullptr || model == nullptr || width == 0 ||
-        height == 0 || look.Neutral())
+        height == 0 || settings.Neutral())
         return nullptr;
 
-    if (!EnsureResources(device, model->GetDesc().Format, width, height))
+    // Both are read pixel for pixel at the working resolution.
+    const D3D12_RESOURCE_DESC pd = proxy->GetDesc();
+    const D3D12_RESOURCE_DESC md = model->GetDesc();
+
+    if (pd.Width != width || pd.Height != height || md.Width != width || md.Height != height)
+        return nullptr;
+
+    if (!EnsureResources(device, md.Format, width, height, settings.Bands()))
         return nullptr;
 
     DlssNrLookConstants c {};
@@ -272,26 +305,26 @@ ID3D12Resource* DlssNrLook_Dx12::Apply(ID3D12GraphicsCommandList* cmd, ID3D12Dev
     c.Height = height;
     c.HalfWidth = (width + 1) / 2;
     c.HalfHeight = (height + 1) / 2;
-    c.Radius = BandRadius(look.detailRadius, height);
+    c.Radius = BandRadius(settings.detailRadius, height);
     c.Passthrough = passthrough ? 1 : 0;
-    c.Bands = look.Bands() ? 1 : 0;
-    c.Strength = look.strength;
-    c.Brighten = look.brighten;
-    c.Darken = look.darken;
-    c.MaxBrighten = look.maxBrighten;
-    c.MaxDarken = look.maxDarken;
-    c.Colour = look.colour;
-    c.Hue = look.hue;
-    c.MaxColour = look.maxColour;
-    c.Shadows = look.shadows;
-    c.Midtones = look.midtones;
-    c.Highlights = look.highlights;
-    c.Tone = look.tone;
-    c.Detail = look.detail;
+    c.Bands = settings.Bands() ? 1 : 0;
+    c.Strength = settings.strength;
+    c.Brighten = settings.brighten;
+    c.Darken = settings.darken;
+    c.MaxBrighten = settings.maxBrighten;
+    c.MaxDarken = settings.maxDarken;
+    c.Colour = settings.colour;
+    c.Hue = settings.hue;
+    c.MaxColour = settings.maxColour;
+    c.Shadows = settings.shadows;
+    c.Midtones = settings.midtones;
+    c.Highlights = settings.highlights;
+    c.Tone = settings.tone;
+    c.Detail = settings.detail;
     c.GfEps = kGfEps;
-    c.ShadowMaxBrighten = look.shadowMaxBrighten;
-    c.ShadowMaxDarken = look.shadowMaxDarken;
-    c.BlackRestore = look.blackRestore;
+    c.ShadowMaxBrighten = settings.shadowMaxBrighten;
+    c.ShadowMaxDarken = settings.shadowMaxDarken;
+    c.BlackRestore = settings.blackRestore;
     c.BlocksX = (width + kBlock - 1) / kBlock;
     c.BlocksY = (height + kBlock - 1) / kBlock;
 
@@ -300,8 +333,8 @@ ID3D12Resource* DlssNrLook_Dx12::Apply(ID3D12GraphicsCommandList* cmd, ID3D12Dev
         _loggedFirst = true;
         LOG_INFO("DLSS-NR look: active at {}x{}, band radius {} (detail radius {:.2f}%), tone {:.2f}, detail {:.2f}, "
                  "shadow limits +{:.2f}/-{:.2f} stops, black restore {}",
-                 width, height, c.Radius, look.detailRadius, look.tone, look.detail, look.shadowMaxBrighten,
-                 look.shadowMaxDarken, look.blackRestore);
+                 width, height, c.Radius, settings.detailRadius, settings.tone, settings.detail,
+                 settings.shadowMaxBrighten, settings.shadowMaxDarken, settings.blackRestore);
     }
 
     Transition(cmd, model, kUav, kSrv);

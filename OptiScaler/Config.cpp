@@ -328,7 +328,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrLookShadowMaxBrighten.set_from_config(readFloat("DlssNr", "LookShadowMaxBrighten"));
             DlssNrLookShadowMaxDarken.set_from_config(readFloat("DlssNr", "LookShadowMaxDarken"));
             DlssNrLookBlackRestore.set_from_config(readUInt("DlssNr", "LookBlackRestore"));
-            // The edit cache's former multi-pass gains, now the look's tone and detail.
+            // CacheLowGain / CacheHighGain: older ini files' names for the look's tone and detail.
             DlssNrLookTone.set_from_config(readFloat("DlssNr", "CacheLowGain"));
             DlssNrLookDetail.set_from_config(readFloat("DlssNr", "CacheHighGain"));
             DlssNrMaxRatio.set_from_config(readFloat("DlssNr", "MaxRatio"));
@@ -1900,6 +1900,8 @@ bool Config::SaveIni()
     // Old configs, just delete them
     {
         ini.Delete("FSR", "Fsr4ForceEnableInt8");
+        ini.Delete("DlssNr", "CacheLowGain");
+        ini.Delete("DlssNr", "CacheHighGain");
         ini.Delete("Nukems", "MakeDepthCopy", true);
     }
 

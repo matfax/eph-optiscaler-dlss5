@@ -91,9 +91,9 @@ jobs:
         echo "Version: ${{ steps.get_version.outputs.version }}"
         echo "Filename: ${{ steps.get_version.outputs.filename }}"
         
-    # The DLSS 5 look shader is compiled here, with the repo's own dxc, rather than only committed precompiled:
-    # the build embeds DlssNr_Look_Shader.h and fails without it. Always rebuilt from dlssnr_look.hlsl, so an
-    # edit to the shader is picked up; the header is uploaded so it can be committed.
+    # The DLSS 5 look shader is compiled here, with the repo's own dxc: the build embeds DlssNr_Look_Shader.h.
+    # Always rebuilt from dlssnr_look.hlsl, so an edit to the shader is picked up. The header and the .cso are
+    # uploaded as an artifact.
     - name: Compile the DLSS 5 look shader
       working-directory: ${{ github.workspace }}\OptiScaler\shaders\dlssnr\precompile
       shell: pwsh

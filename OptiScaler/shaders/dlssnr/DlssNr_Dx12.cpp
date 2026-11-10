@@ -411,8 +411,8 @@ std::unique_ptr<DlssNr_Dx12> g_compose;
 // use only -- with both options off nothing of it exists.
 std::unique_ptr<DlssNrEditCache_Dx12> g_cache;
 
-// The look stage: reshapes the model's answer before anything reads it. Created the first time a look setting
-// leaves its identity; until then nothing of it exists.
+// The look stage: reshapes the model's answer before anything reads it. Created the first time the look
+// settings are not all at their identity (the default shadow limits are not); until then nothing of it exists.
 std::unique_ptr<DlssNrLook_Dx12> g_look;
 
 // CacheAsync: the model on a compute queue of our own, in parallel with the game's frame. See AsyncLaunch for
@@ -886,7 +886,7 @@ void CheckCaptureTrigger()
             else if (k == "LookShadowMaxDarken")
                 c->DlssNrLookShadowMaxDarken = v;
             else if (k == "LookBlackRestore")
-                c->DlssNrLookBlackRestore = (uint32_t) v;
+                c->DlssNrLookBlackRestore = (uint32_t) std::clamp(v, 0.0f, 2.0f);
             else
             {
                 LOG_WARN("DLSS-NR dlssnr-set.txt: unknown key {}", k);

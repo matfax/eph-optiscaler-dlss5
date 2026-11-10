@@ -307,11 +307,10 @@ page goes to `dlssnr-benchmark/<date>/rapport.html`; `dlssnr-benchmark.html` ope
 
 ## Multi-pass approximation
 
-The cache's own band gains (`CacheLowGain` / `CacheHighGain`) are gone: the look stage
-(`shaders/dlssnr/DlssNr_Look_Dx12`, RenoDX's look controls) does this job now, before the resolve, with the
-cache on or off. `LookTone` / `LookDetail` scale the broad and fine parts of the edit in stops (2 = twice
-the effect), so the edit the cache captures already carries them and is carried as it is; the cache's
-`LowGain` / `HighGain` constants stay at 1. The old keys are still read as the look's fallback.
+The look stage (`shaders/dlssnr/DlssNr_Look_Dx12`, RenoDX's look controls) does this before the resolve,
+with the cache on or off. `LookTone` / `LookDetail` scale the broad and fine parts of the edit in stops
+(2 = twice the effect), so the edit the cache captures already carries them and is carried as it is; the
+cache's own `LowGain` / `HighGain` constants are 1.
 
 The split is not the cache's: the look splits only the achromatic edit (the colour edit has its own
 controls), with a guided filter whose radius is `LookDetailRadius` (percent of the working height), where

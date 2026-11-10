@@ -12,8 +12,8 @@
 
 class Config;
 
-// The player's values. With every one at its identity the stage does not run; the shadow limits and the black
-// restore are on by default (Config), so it normally does.
+// The player's values. With every one at its identity the stage does not run; the default shadow limits
+// (Config) are not, so it normally does.
 struct DlssNrLookSettings
 {
     float strength = 1.0f;
@@ -100,7 +100,7 @@ class DlssNrLook_Dx12 : public Shader_Dx12
     static constexpr uint32_t kUavCount = 4;
     static constexpr unsigned int kBlock = 32; // the black restore's block, as in the shader
 
-    bool EnsureResources(ID3D12Device* device, DXGI_FORMAT format, unsigned int width, unsigned int height);
+    bool EnsureResources(ID3D12Device* device, DXGI_FORMAT format, unsigned int width, unsigned int height, bool bands);
     bool Pass(ID3D12GraphicsCommandList* cmd, const DlssNrLookConstants& constants, ID3D12Resource* proxy,
               ID3D12Resource* model, unsigned int groupsX, unsigned int groupsY);
     void Retire(ID3D12Resource*& res);
@@ -118,6 +118,10 @@ class DlssNrLook_Dx12 : public Shader_Dx12
     unsigned int _width = 0;
     unsigned int _height = 0;
     DXGI_FORMAT _format = DXGI_FORMAT_UNKNOWN;
+    bool _bandsFull = false;
+    unsigned int _failedWidth = 0;
+    unsigned int _failedHeight = 0;
+    DXGI_FORMAT _failedFormat = DXGI_FORMAT_UNKNOWN;
 
     // Replaced textures may still be read by frames in flight, so they are released some calls later.
     struct Retired

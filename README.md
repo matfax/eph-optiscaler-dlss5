@@ -19,21 +19,21 @@ resolve, the JBU and the edit cache see it. Result strength; brightening and dar
 colour, hue shift and a maximum colour change; shadows, midtones and highlights; and the band split --
 large-scale tone, fine detail and the detail radius where one ends and the other begins (a guided filter,
 so a lit wall's change does not spill onto the dark doorway beside it). All of it in stops of the change,
-not of the picture, so the defaults are the model's own answer and the pass does not run. Tone and detail
-replace the edit cache's lighting and detail gains, now with the cache off too (`CacheLowGain` /
-`CacheHighGain` are read as their fallback). DirectX 12 only.
+not of the picture. Tone and detail replace the edit cache's lighting and detail gains and work with the
+cache off too (`CacheLowGain` / `CacheHighGain` are read as their fallback). DirectX 12 only.
 
 **Darker, less relit shadows by default.** Three changes against the model's habits in the dark:
 - *Local tone* defaults to 0.5 instead of the model's 1.0. Most of tone's change is broad relighting: the
   model replaces the game's own darkening (SSAO, contact shadows) with its own idea of the light. NVIDIA ships
   it lower too (Hogwarts Legacy 0.5, RTX Remix 0.3); *Local structure* is what adds occlusion detail.
-- *Shadow limits*: soft limits on how far the model may brighten (0.5 stop) or darken (1 stop) a shadow. The
-  answer goes back as a ratio, so a tiny lift in a dark pixel (0.002 to 0.006) is a large one (3x).
-- *Black level restore*: the model lifts black level; in areas near-black in the game's frame the lift is
-  measured per block and taken back, at most 0.025 (RenoDX's SDR black restore, with a smooth edge).
+- *Shadow limits*: soft limits on how far the result may brighten (0.5 stop) or darken (1 stop) a shadow
+  compared with the game's frame. The answer goes back as a ratio, so a tiny lift in a dark pixel (0.002 to
+  0.006) is a large one (3x); at 0.5 stop it comes back as 1.4x.
+- *Black level restore* (optional, off by default as RenoDX recommends): on games whose frame is already
+  tone mapped, the model's black-level lift is measured per block in near-black areas and taken back, at
+  most 0.025 (RenoDX's SDR black restore, with an optional smooth edge).
 
-The shadow limits and the black restore are part of the look, so it now runs by default; set them to 0 /
-Off for the model's own answer.
+The shadow limits are part of the look, so it runs by default; set them to 0 for the model's own answer.
 
 ## New in 1.3.0
 

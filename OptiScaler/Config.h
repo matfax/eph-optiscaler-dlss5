@@ -317,9 +317,9 @@ class Config
     CustomOptional<float> DlssNrColourStrength { 1.0f };
 
     // The look stage (shaders/dlssnr/DlssNr_Look_Dx12): reshapes the model's edit before the resolve, in
-    // stops. Every default is the identity, and with all of them there the stage does not run. Tone and
-    // Detail replace the edit cache's former CacheLowGain / CacheHighGain, which are still read as their
-    // fallback.
+    // stops. The stage runs unless every value is at its identity (1, 0 for the limits, the black restore
+    // off); the shadow limits are on by default. Tone and Detail fall back to an older ini's CacheLowGain /
+    // CacheHighGain.
     CustomOptional<float> DlssNrLookStrength { 1.0f };
     CustomOptional<float> DlssNrLookBrighten { 1.0f };
     CustomOptional<float> DlssNrLookDarken { 1.0f };
@@ -334,13 +334,14 @@ class Config
     CustomOptional<float> DlssNrLookTone { 1.0f };
     CustomOptional<float> DlssNrLookDetail { 1.0f };
     CustomOptional<float> DlssNrLookDetailRadius { 1.0f }; // percent of the model's working height
-    // Soft limits on how far the model may brighten or darken a shadow, in stops (0 = none). On by default:
+    // Soft limits on how far the answer may brighten or darken a shadow against the frame, in stops (0 = none):
     // the resolve puts the answer back as a ratio, and a small lift in a shadow is a large ratio.
     CustomOptional<float> DlssNrLookShadowMaxBrighten { 0.5f };
     CustomOptional<float> DlssNrLookShadowMaxDarken { 1.0f };
-    // The model lifts black level; this takes the lift back in near-black blocks (RenoDX's SDR black restore).
-    // 0 off, 1 near-black blocks (hard gate), 2 near-black blocks with a smooth taper (default).
-    CustomOptional<uint32_t> DlssNrLookBlackRestore { 2 };
+    // The model lifts black level; this takes the lift back in near-black blocks (RenoDX's SDR black restore),
+    // on passthrough (already tone-mapped) frames only. 0 off (default, as RenoDX recommends), 1 near-black
+    // blocks (hard gate), 2 near-black blocks with a smooth taper.
+    CustomOptional<uint32_t> DlssNrLookBlackRestore { 0 };
 
     // The RenoDX reversible proxy mode. 0 = today's soft-knee encode + our composition (default,
     // byte-identical); 1 = unclipped Neutwo proxy + our composition; 2 = Neutwo proxy + pure-inverse

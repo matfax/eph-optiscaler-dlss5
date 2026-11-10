@@ -4,10 +4,9 @@ Running the model twice (feeding it its own output) costs twice as much. A singl
 be amplified, with separate gains on its low band (lighting, tone) and high band (detail), in log space.
 This finds the gains that make one pass look most like two.
 
-The gains were the edit cache's CacheLowGain / CacheHighGain; they are the look stage's LookTone /
-LookDetail now, and are printed under those names. The look splits differently -- only the achromatic
-edit, by a guided filter at LookDetailRadius, where this fit splits every channel with the cache's
-pyramid (or a Gaussian, --sigma) -- so the result is a starting point, not an exact equivalent.
+The result is printed as the look stage's LookTone / LookDetail. The look splits differently -- only the
+achromatic edit, by a guided filter at LookDetailRadius, where this fit splits every channel with the
+cache's pyramid (or a Gaussian, --sigma) -- so the result is a starting point, not an exact equivalent.
 
 You need the same frame three times -- held still, so only the pass count differs:
   orig   the frame without Neural Rendering

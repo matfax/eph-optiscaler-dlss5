@@ -521,10 +521,10 @@ static void GroupLookAdjust(Config* config)
 
     LiveSlider("Shadow max brightening", &config->DlssNrLookShadowMaxBrighten, 0.0f, 4.0f, 0.5f, "%.2f stops");
     LiveSlider("Shadow max darkening", &config->DlssNrLookShadowMaxDarken, 0.0f, 4.0f, 1.0f, "%.2f stops");
-    HelpMarker("Soft limits on how far the model may brighten or darken a shadow, faded in by"
-               "\nthe same zone as Shadows. The model's answer goes back as a ratio, so a tiny"
-               "\nlift in a dark pixel is a large ratio -- this is what keeps shadows from"
-               "\ndoubling. 0 means no limit. Defaults 0.5 and 1 stop.");
+    HelpMarker("Soft limits on how far the result may brighten or darken a shadow compared"
+               "\nwith the game's frame, faded in by the same zone as Shadows. The model's answer"
+               "\ngoes back as a ratio, so a tiny lift in a dark pixel is a large ratio: at 0.5"
+               "\nstop a 3x lift comes back as 1.4x. 0 means no limit. Defaults 0.5 and 1 stop.");
 
     static const char* blackNames[] = { "Off", "Near-black areas", "Near-black areas, smooth edge" };
     int black = (int) std::min(config->DlssNrLookBlackRestore.value_or_default(), 2u);
@@ -535,17 +535,18 @@ static void GroupLookAdjust(Config* config)
                "\nframe, this measures how much brighter the model made them and takes it off"
                "\nagain (at most 0.025). Not elsewhere: there the difference is the model's real"
                "\nedit, and taking it off would flicker. The smooth edge fades it out instead of"
-               "\nswitching at the threshold (default). From RenoDX's SDR black restore.");
+               "\nswitching at the threshold. Only on games whose frame is already tone mapped"
+               "\n(SDR); off by default, as RenoDX recommends (it can darken dark bands and text"
+               "\nboxes). From RenoDX's SDR black restore.");
 
     ImGui::SeparatorText("Detail");
 
     LiveSlider("Large-scale tone", &config->DlssNrLookTone, 0.0f, 2.0f, 1.0f);
     HelpMarker("The broad part of the change: the lighting the model adds or takes away over"
-               "\nwhole surfaces. Replaces the edit cache's former lighting gain.");
+               "\nwhole surfaces.");
 
     LiveSlider("Fine detail", &config->DlssNrLookDetail, 0.0f, 2.0f, 1.0f);
-    HelpMarker("The fine part of the change: texture and micro-contrast. Replaces the edit"
-               "\ncache's former detail gain.");
+    HelpMarker("The fine part of the change: texture and micro-contrast.");
 
     LiveSlider("Detail radius", &config->DlssNrLookDetailRadius, 0.25f, 4.0f, 1.0f, "%.2f %%");
     HelpMarker("Where tone ends and detail begins, in percent of the picture's height. Only"
@@ -573,7 +574,7 @@ static void GroupLookAdjust(Config* config)
         config->DlssNrLookDetailRadius = 1.0f;
         config->DlssNrLookShadowMaxBrighten = 0.5f;
         config->DlssNrLookShadowMaxDarken = 1.0f;
-        config->DlssNrLookBlackRestore = 2u;
+        config->DlssNrLookBlackRestore = 0u;
     }
 
     HelpMarker("From RenoDX's DLSS 5 addon (clshortfuse), its look controls without halo"
@@ -2883,8 +2884,8 @@ static void GroupAdvancedCache(Config* config)
                "\nat a similar depth and brightness, rather than from whatever is nearest. Keeps"
                "\na character's edit off the wall behind them.");
 
-    ImGui::TextDisabled("The lighting and detail gains moved to Look > Adjust the result, as large-scale\n"
-                        "tone and fine detail. They work with the cache off too now.");
+    ImGui::TextDisabled("Lighting and detail gains: Look > Adjust the result (large-scale tone, fine\n"
+                        "detail).");
 }
 
 // Developer tools: model creation, the cache's debug views and the measurement dump.
