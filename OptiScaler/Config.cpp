@@ -325,6 +325,9 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrLookTone.set_from_config(readFloat("DlssNr", "LookTone"));
             DlssNrLookDetail.set_from_config(readFloat("DlssNr", "LookDetail"));
             DlssNrLookDetailRadius.set_from_config(readFloat("DlssNr", "LookDetailRadius"));
+            DlssNrLookShadowMaxBrighten.set_from_config(readFloat("DlssNr", "LookShadowMaxBrighten"));
+            DlssNrLookShadowMaxDarken.set_from_config(readFloat("DlssNr", "LookShadowMaxDarken"));
+            DlssNrLookBlackRestore.set_from_config(readUInt("DlssNr", "LookBlackRestore"));
             // The edit cache's former multi-pass gains, now the look's tone and detail.
             DlssNrLookTone.set_from_config(readFloat("DlssNr", "CacheLowGain"));
             DlssNrLookDetail.set_from_config(readFloat("DlssNr", "CacheHighGain"));
@@ -1311,6 +1314,12 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "LookDetail", GetFloatValue(Instance()->DlssNrLookDetail.value_for_config()).c_str());
     ini.SetValue("DlssNr", "LookDetailRadius",
                  GetFloatValue(Instance()->DlssNrLookDetailRadius.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookShadowMaxBrighten",
+                 GetFloatValue(Instance()->DlssNrLookShadowMaxBrighten.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookShadowMaxDarken",
+                 GetFloatValue(Instance()->DlssNrLookShadowMaxDarken.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookBlackRestore",
+                 GetIntValue(Instance()->DlssNrLookBlackRestore.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MaxRatio", GetFloatValue(Instance()->DlssNrMaxRatio.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Transfer", GetIntValue(Instance()->DlssNrTransfer.value_for_config()).c_str());
 

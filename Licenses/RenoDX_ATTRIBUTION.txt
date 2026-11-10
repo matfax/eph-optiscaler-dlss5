@@ -52,7 +52,14 @@ look_band.cs_5_1.hlsl, look_compose.cs_5_1.hlsl, look_stage.hpp):
     edit, the shadows / midtones / highlights zones, strength, and the tanh soft
     limits.
 
-Its halo suppression and temporal stabilisation were not taken.
+  * The SDR black-level restore (legacy_reduce / legacy_apply): the per-32x32-block
+    lift of the model's result over the untouched frame, in encoded luminance,
+    taken back up to 0.025, only in blocks whose brightest untouched pixel is under
+    the dark gate (0.061, the sRGB encoding of 0.005 of paper white), with its
+    smooth taper.
+
+Its halo suppression and temporal stabilisation were not taken. The shadow limits
+next to them are this fork's.
 
 What is not derived from it
 ---------------------------

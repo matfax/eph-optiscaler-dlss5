@@ -12,7 +12,8 @@
 
 class Config;
 
-// The player's values. Every default is the identity, and with all of them there the stage does not run.
+// The player's values. With every one at its identity the stage does not run; the shadow limits and the black
+// restore are on by default (Config), so it normally does.
 struct DlssNrLookSettings
 {
     float strength = 1.0f;
@@ -29,6 +30,9 @@ struct DlssNrLookSettings
     float tone = 1.0f;
     float detail = 1.0f;
     float detailRadius = 1.0f; // percent of the model's working height
+    float shadowMaxBrighten = 0.0f; // soft limits on the brightness change in shadows, stops, 0 = none
+    float shadowMaxDarken = 0.0f;
+    uint32_t blackRestore = 0; // 0 off, 1 near-black blocks, 2 near-black blocks with a smooth taper
 
     static DlssNrLookSettings FromConfig(const Config& cfg);
 
@@ -61,6 +65,11 @@ struct alignas(256) DlssNrLookConstants
     float Tone;
     float Detail;
     float GfEps;
+    float ShadowMaxBrighten;
+    float ShadowMaxDarken;
+    uint32_t BlackRestore;
+    uint32_t BlocksX;
+    uint32_t BlocksY;
     float Pad0;
     float Pad1;
 };
@@ -88,7 +97,8 @@ class DlssNrLook_Dx12 : public Shader_Dx12
 
   private:
     static constexpr uint32_t kSrvCount = 2;
-    static constexpr uint32_t kUavCount = 3;
+    static constexpr uint32_t kUavCount = 4;
+    static constexpr unsigned int kBlock = 32; // the black restore's block, as in the shader
 
     bool EnsureResources(ID3D12Device* device, DXGI_FORMAT format, unsigned int width, unsigned int height);
     bool Pass(ID3D12GraphicsCommandList* cmd, const DlssNrLookConstants& constants, ID3D12Resource* proxy,
@@ -104,6 +114,7 @@ class DlssNrLook_Dx12 : public Shader_Dx12
     ID3D12Resource* _output = nullptr; // N', working resolution, the model's format
     ID3D12Resource* _bandA = nullptr;  // half resolution, 32-bit float: moments, then coefficients
     ID3D12Resource* _bandB = nullptr;
+    ID3D12Resource* _blocks = nullptr; // one texel a 32x32 block: the black restore's measurement
     unsigned int _width = 0;
     unsigned int _height = 0;
     DXGI_FORMAT _format = DXGI_FORMAT_UNKNOWN;

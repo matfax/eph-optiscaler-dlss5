@@ -85,6 +85,9 @@ DlssNrLookSettings DlssNrLookSettings::FromConfig(const Config& cfg)
     s.tone = std::clamp(cfg.DlssNrLookTone.value_or_default(), 0.0f, 2.0f);
     s.detail = std::clamp(cfg.DlssNrLookDetail.value_or_default(), 0.0f, 2.0f);
     s.detailRadius = std::clamp(cfg.DlssNrLookDetailRadius.value_or_default(), 0.25f, 4.0f);
+    s.shadowMaxBrighten = std::clamp(cfg.DlssNrLookShadowMaxBrighten.value_or_default(), 0.0f, 4.0f);
+    s.shadowMaxDarken = std::clamp(cfg.DlssNrLookShadowMaxDarken.value_or_default(), 0.0f, 4.0f);
+    s.blackRestore = std::min(cfg.DlssNrLookBlackRestore.value_or_default(), 2u);
     return s;
 }
 
@@ -92,7 +95,8 @@ bool DlssNrLookSettings::Neutral() const
 {
     return strength == 1.0f && brighten == 1.0f && darken == 1.0f && maxBrighten <= 0.0f && maxDarken <= 0.0f &&
            colour == 1.0f && hue == 1.0f && maxColour <= 0.0f && shadows == 1.0f && midtones == 1.0f &&
-           highlights == 1.0f && tone == 1.0f && detail == 1.0f;
+           highlights == 1.0f && tone == 1.0f && detail == 1.0f && shadowMaxBrighten <= 0.0f &&
+           shadowMaxDarken <= 0.0f && blackRestore == 0;
 }
 
 // The detail radius is a share of the model's height, and the box runs on the half-resolution grid.
@@ -176,6 +180,7 @@ void DlssNrLook_Dx12::ReleaseResources()
     SAFE_RELEASE(_output);
     SAFE_RELEASE(_bandA);
     SAFE_RELEASE(_bandB);
+    SAFE_RELEASE(_blocks);
     _width = 0;
     _height = 0;
     _format = DXGI_FORMAT_UNKNOWN;
@@ -192,6 +197,7 @@ bool DlssNrLook_Dx12::EnsureResources(ID3D12Device* device, DXGI_FORMAT format, 
     Retire(_output);
     Retire(_bandA);
     Retire(_bandB);
+    Retire(_blocks);
 
     const unsigned int halfWidth = (width + 1) / 2;
     const unsigned int halfHeight = (height + 1) / 2;
@@ -200,13 +206,16 @@ bool DlssNrLook_Dx12::EnsureResources(ID3D12Device* device, DXGI_FORMAT format, 
     _output = CreateTexture(device, format, width, height);
     _bandA = CreateTexture(device, DXGI_FORMAT_R32G32B32A32_FLOAT, halfWidth, halfHeight);
     _bandB = CreateTexture(device, DXGI_FORMAT_R32G32B32A32_FLOAT, halfWidth, halfHeight);
+    _blocks = CreateTexture(device, DXGI_FORMAT_R32G32B32A32_FLOAT, (width + kBlock - 1) / kBlock,
+                            (height + kBlock - 1) / kBlock);
 
-    if (_output == nullptr || _bandA == nullptr || _bandB == nullptr)
+    if (_output == nullptr || _bandA == nullptr || _bandB == nullptr || _blocks == nullptr)
     {
         LOG_ERROR("DLSS-NR look: could not allocate its textures at {}x{} (format {})", width, height, (int) format);
         Retire(_output);
         Retire(_bandA);
         Retire(_bandB);
+        Retire(_blocks);
         _width = 0;
         _height = 0;
         _format = DXGI_FORMAT_UNKNOWN;
@@ -231,6 +240,7 @@ bool DlssNrLook_Dx12::Pass(ID3D12GraphicsCommandList* cmd, const DlssNrLookConst
     CreateUnorderedAccessView(_device, _output, heap.GetUavCPU(0), 0);
     CreateUnorderedAccessView(_device, _bandA, heap.GetUavCPU(1), 0);
     CreateUnorderedAccessView(_device, _bandB, heap.GetUavCPU(2), 0);
+    CreateUnorderedAccessView(_device, _blocks, heap.GetUavCPU(3), 0);
 
     if (!CreateConstantsBuffer(_device, _constantBuffers[slot], constants, heap.GetCbvCPU(0)))
         return false;
@@ -279,12 +289,19 @@ ID3D12Resource* DlssNrLook_Dx12::Apply(ID3D12GraphicsCommandList* cmd, ID3D12Dev
     c.Tone = look.tone;
     c.Detail = look.detail;
     c.GfEps = kGfEps;
+    c.ShadowMaxBrighten = look.shadowMaxBrighten;
+    c.ShadowMaxDarken = look.shadowMaxDarken;
+    c.BlackRestore = look.blackRestore;
+    c.BlocksX = (width + kBlock - 1) / kBlock;
+    c.BlocksY = (height + kBlock - 1) / kBlock;
 
     if (!_loggedFirst)
     {
         _loggedFirst = true;
-        LOG_INFO("DLSS-NR look: active at {}x{}, band radius {} (detail radius {:.2f}%), tone {:.2f}, detail {:.2f}",
-                 width, height, c.Radius, look.detailRadius, look.tone, look.detail);
+        LOG_INFO("DLSS-NR look: active at {}x{}, band radius {} (detail radius {:.2f}%), tone {:.2f}, detail {:.2f}, "
+                 "shadow limits +{:.2f}/-{:.2f} stops, black restore {}",
+                 width, height, c.Radius, look.detailRadius, look.tone, look.detail, look.shadowMaxBrighten,
+                 look.shadowMaxDarken, look.blackRestore);
     }
 
     Transition(cmd, model, kUav, kSrv);
@@ -299,6 +316,15 @@ ID3D12Resource* DlssNrLook_Dx12::Apply(ID3D12GraphicsCommandList* cmd, ID3D12Dev
             ok = Pass(cmd, c, proxy, model, Groups(c.HalfWidth), Groups(c.HalfHeight));
             UavBarrierAll(cmd);
         }
+    }
+
+    // The black lift is measured on the answer as shaped (after the band passes, which it reads), so a lift the
+    // shadow limits already held back is not taken off twice.
+    if (ok && c.BlackRestore != 0)
+    {
+        c.Mode = 6;
+        ok = Pass(cmd, c, proxy, model, c.BlocksX, c.BlocksY);
+        UavBarrierAll(cmd);
     }
 
     if (ok)

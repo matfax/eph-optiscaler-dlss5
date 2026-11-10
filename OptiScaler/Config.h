@@ -301,7 +301,11 @@ class Config
     // 0 default (standard), 1 natural, 2 cinematic -- the model's own processing profiles.
     CustomOptional<uint32_t> DlssNrStyle { 0 };
     CustomOptional<float> DlssNrLocalStructure { 1.0f };
-    CustomOptional<float> DlssNrLocalTone { 1.0f };
+    // 0.5, not the model's 1.0: tone relights the scene by design -- most of its change is broad, and it
+    // replaces baked-in darkening (SSAO, contact shadows) with its own idea of the light. NVIDIA's own
+    // integrations ship it lower (Hogwarts Legacy 0.5, RTX Remix 0.3); structure is the control that adds
+    // occlusion detail.
+    CustomOptional<float> DlssNrLocalTone { 0.5f };
     // -1 means follow local structure, which is the model's own default. It is not a strength of zero.
     CustomOptional<float> DlssNrSkinStructure { -1.0f };
     CustomOptional<bool> DlssNrAutoMask { true };
@@ -330,6 +334,13 @@ class Config
     CustomOptional<float> DlssNrLookTone { 1.0f };
     CustomOptional<float> DlssNrLookDetail { 1.0f };
     CustomOptional<float> DlssNrLookDetailRadius { 1.0f }; // percent of the model's working height
+    // Soft limits on how far the model may brighten or darken a shadow, in stops (0 = none). On by default:
+    // the resolve puts the answer back as a ratio, and a small lift in a shadow is a large ratio.
+    CustomOptional<float> DlssNrLookShadowMaxBrighten { 0.5f };
+    CustomOptional<float> DlssNrLookShadowMaxDarken { 1.0f };
+    // The model lifts black level; this takes the lift back in near-black blocks (RenoDX's SDR black restore).
+    // 0 off, 1 near-black blocks (hard gate), 2 near-black blocks with a smooth taper (default).
+    CustomOptional<uint32_t> DlssNrLookBlackRestore { 2 };
 
     // The RenoDX reversible proxy mode. 0 = today's soft-knee encode + our composition (default,
     // byte-identical); 1 = unclipped Neutwo proxy + our composition; 2 = Neutwo proxy + pure-inverse

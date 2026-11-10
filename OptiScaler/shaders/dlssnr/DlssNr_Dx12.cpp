@@ -881,6 +881,12 @@ void CheckCaptureTrigger()
                 c->DlssNrLookDetail = v;
             else if (k == "LookDetailRadius")
                 c->DlssNrLookDetailRadius = v;
+            else if (k == "LookShadowMaxBrighten")
+                c->DlssNrLookShadowMaxBrighten = v;
+            else if (k == "LookShadowMaxDarken")
+                c->DlssNrLookShadowMaxDarken = v;
+            else if (k == "LookBlackRestore")
+                c->DlssNrLookBlackRestore = (uint32_t) v;
             else
             {
                 LOG_WARN("DLSS-NR dlssnr-set.txt: unknown key {}", k);

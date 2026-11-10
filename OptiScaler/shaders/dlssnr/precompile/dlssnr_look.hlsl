@@ -21,10 +21,25 @@
 // and highlights on the proxy's luminance zone, strength on all of it, and three soft knees limit the
 // result.
 //
+// Two corrections for the model's habits in the dark, both in this pass because both reshape its answer, and
+// below the soft knee the proxy is the frame, so N' / P here is the finished picture's ratio to the frame:
+//
+//   shadow limits  soft limits, in stops, on how far the model may brighten or darken a shadow. The resolve
+//                  puts the answer back as a ratio, so a tiny absolute lift in a shadow (0.002 -> 0.006) is a
+//                  large ratio (3x) that the ratio floor and the 2x guard only partly tame.
+//   black restore  the model lifts black level. Per 32x32 block, the lift of the answer over the proxy is
+//                  measured and subtracted again, up to 0.025 in the encoded values -- only
+//                  in near-black blocks, because elsewhere the "lift" is the model's own edit plus zero-mean
+//                  noise, and clamping that at zero turns it into per-block darkening that flickers. It is
+//                  measured on the answer as this pass shapes it, after the shadow limits, so a lift those
+//                  already held back is not taken off a second time (which would crush the black below the
+//                  frame's own).
+//
 // Taken from RenoDX's DLSS 5 addon (clshortfuse, https://github.com/clshortfuse/renodx, as maintained in
 // https://github.com/williamstosh/RenoDX-DLSSNR-Nexus): its look stage's edit split, guided-filter band
-// split and gain shaping (look_common.hlsli ShapeEdit, look_band.cs). Its halo suppression and temporal
-// stabilisation are not taken. MIT, see Licenses/RenoDX_ATTRIBUTION.txt.
+// split and gain shaping (look_common.hlsli ShapeEdit, look_band.cs), and its SDR black-level restore
+// (legacy_reduce / legacy_apply, the dark gate). Its halo suppression and temporal stabilisation are not
+// taken; the shadow limits are this fork's. MIT, see Licenses/RenoDX_ATTRIBUTION.txt.
 //
 // Passes, chosen by gMode, each separated by a UAV barrier on the host:
 //   0  down     gBandA = 2x2 means of (I, a, I*I, I*a)                                  half resolution
@@ -34,6 +49,8 @@
 //   3  H        gBandB.xy = horizontal box of the coefficients
 //   4  V        gBandA.xy = vertical box of the coefficients
 //   5  compose  gTarget = N'                                                            working resolution
+//   6  blocks   gBlocks = per 32x32 block: mean luminance of the shaped N, of P, P's max   one group a block
+// Order: 0-4 (with tone or detail), 6 (with the black restore), 5.
 // Boxes are clamped at the border and normalised by the in-bounds count, so a constant field stays constant.
 
 cbuffer LookParams : register(b0)
@@ -60,6 +77,11 @@ cbuffer LookParams : register(b0)
     float gTone;         // the broad part of the achromatic edit
     float gDetail;       // the fine part
     float gGfEps;        // the guided filter's regularisation, stops squared
+    float gShadowMaxBrighten; // soft limits on the achromatic edit in shadows, stops, 0 = none
+    float gShadowMaxDarken;
+    uint  gBlackRestore;  // 0 off, 1 near-black blocks (hard gate), 2 near-black blocks with a smooth taper
+    uint  gBlocksX;       // the block grid, (working + 31) / 32
+    uint  gBlocksY;
     float gPad0;
     float gPad1;
 };
@@ -69,10 +91,22 @@ Texture2D<float4>   gModel  : register(t1);  // N: what it returned
 RWTexture2D<float4> gTarget : register(u0);  // N', at the working resolution
 RWTexture2D<float4> gBandA  : register(u1);  // half resolution
 RWTexture2D<float4> gBandB  : register(u2);
+RWTexture2D<float4> gBlocks : register(u3);  // one texel a 32x32 block: (mean N, mean P, max P, 0), encoded
 
 static const float  kRatioFloor = 1.0 / 1024.0;
 static const float3 kW = float3(0.212639, 0.715169, 0.072192);
 static const float  kLog2Grey = -2.4739312; // log2(0.18)
+
+// The black restore's numbers, RenoDX's: at most 0.025 is taken back, and only in blocks whose brightest
+// untouched pixel is below 0.061 -- the sRGB encoding of 0.005 of paper white -- all in the encoded values.
+static const float  kPedestalCap = 0.025;
+static const float  kDarkGate = 0.061;
+static const uint   kBlock = 32;
+
+groupshared float sBlockN[64];
+groupshared float sBlockP[64];
+groupshared float sBlockMax[64];
+groupshared uint  sBlockCount[64];
 
 float3 SrgbToLinear(float3 v)
 {
@@ -138,13 +172,19 @@ void ColourSplit(float3 c, float3 lp, out float3 cR, out float3 cT, out float s)
 
 // Shadows below about 3.5 stops under mid grey, highlights from about 2.5 above, midtones between, with
 // smooth two-stop crossovers.
+float ShadowWeight(float I) { return 1.0 - smoothstep(-3.5, -1.5, I - kLog2Grey); }
+
 float ZoneGain(float I)
 {
-    const float L = I - kLog2Grey;
-    const float wSh = 1.0 - smoothstep(-3.5, -1.5, L);
-    const float wHi = smoothstep(0.5, 2.5, L);
+    const float wSh = ShadowWeight(I);
+    const float wHi = smoothstep(0.5, 2.5, I - kLog2Grey);
     return wSh * gShadows + (1.0 - wSh - wHi) * gMidtones + wHi * gHighlights;
 }
+
+// A soft limit: x below the limit is nearly untouched, x past it rolls off toward it. The argument is clamped
+// because tanh can be expanded as (e^x - e^-x) / (e^x + e^-x), which is Inf / Inf past |x| ~ 88; tanh(10) is
+// already 1.0 in float32, so nothing else changes.
+float SoftLimit(float x, float limit) { return limit * tanh(clamp(x / limit, -10.0, 10.0)); }
 
 // Every gain acts on stops, and every operator is continuous and monotonic: the sign split is piecewise
 // linear rather than a smooth blend, which would not be monotonic when the two gains differ.
@@ -163,20 +203,28 @@ float3 ShapeEdit(Edit x, float aB, float aD)
     a *= g;
     c *= g;
 
-    // The argument is clamped because tanh can be expanded as (e^x - e^-x) / (e^x + e^-x), which is
-    // Inf / Inf past |x| ~ 88; tanh(10) is already 1.0 in float32, so nothing else changes.
     if (a > 0.0 && gMaxBrighten > 0.0)
-        a = gMaxBrighten * tanh(min(a / gMaxBrighten, 10.0));
+        a = SoftLimit(a, gMaxBrighten);
 
     if (a < 0.0 && gMaxDarken > 0.0)
-        a = gMaxDarken * tanh(max(a / gMaxDarken, -10.0));
+        a = SoftLimit(a, gMaxDarken);
+
+    // The shadow limits, faded in by the same zone weight the shadows gain uses: a shadow is held to them,
+    // a midtone is free, and the crossover between them is the zone's own.
+    const float wSh = ShadowWeight(x.I);
+
+    if (a > 0.0 && gShadowMaxBrighten > 0.0)
+        a = lerp(a, SoftLimit(a, gShadowMaxBrighten), wSh);
+
+    if (a < 0.0 && gShadowMaxDarken > 0.0)
+        a = lerp(a, SoftLimit(a, gShadowMaxDarken), wSh);
 
     if (gMaxColour > 0.0)
     {
         const float norm = sqrt(dot(kW, c * c));
 
         if (norm > 1e-6)
-            c *= gMaxColour * tanh(min(norm / gMaxColour, 10.0)) / norm;
+            c *= SoftLimit(norm, gMaxColour) / norm;
     }
 
     return a + c;
@@ -213,29 +261,117 @@ float2 Coefficients(int2 pixel)
     return lerp(lerp(q00, q10, f.x), lerp(q01, q11, f.x), f.y);
 }
 
+// How much of the black lift this pixel gives back, from the four blocks around it (bilinear, so the blocks
+// do not show): the lift of N over P, clamped to the cap, and only where the block is near-black.
+float Pedestal(int2 pixel)
+{
+    const int2 last = int2(gBlocksX, gBlocksY) - 1;
+    const float2 pos = (float2(pixel) + 0.5) / (float) kBlock - 0.5;
+    const int2 b0 = clamp(int2(floor(pos)), int2(0, 0), last);
+    const int2 b1 = min(b0 + 1, last);
+    const float2 f = saturate(pos - float2(b0));
+    const float4 m = lerp(lerp(gBlocks[b0], gBlocks[int2(b1.x, b0.y)], f.x),
+                          lerp(gBlocks[int2(b0.x, b1.y)], gBlocks[b1], f.x), f.y);
+
+    // The gate is on an interpolated maximum, so a hard comparison still steps where it crosses; the smooth
+    // mode tapers from full below half the gate to none at it.
+    const float weight = gBlackRestore == 2 ? 1.0 - smoothstep(0.5 * kDarkGate, kDarkGate, m.z)
+                                            : (m.z <= kDarkGate ? 1.0 : 0.0);
+    return clamp(m.x - m.y, 0.0, kPedestalCap) * weight;
+}
+
+// The answer at a pixel as this pass shapes it, encoded, before the black restore. Shared by the block pass,
+// which measures what is left of the lift, and the compose, which writes it.
+float4 Shaped(int2 pixel)
+{
+    const Edit x = ReadEdit(pixel);
+    float aB = x.a;
+    float aD = 0.0;
+
+    if (gBands != 0)
+    {
+        const float2 ab = Coefficients(pixel);
+        aB = ab.x * x.I + ab.y;
+        aD = x.a - aB;
+    }
+
+    const float3 shaped = ShapeEdit(x, aB, aD);
+    return float4(Encode(x.n * exp2(x.t * (shaped - x.e))), x.alpha);
+}
+
 [numthreads(8, 8, 1)]
-void CSMain(uint3 id : SV_DispatchThreadID)
+void CSMain(uint3 id : SV_DispatchThreadID, uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID)
 {
     const int2 pixel = int2(id.xy);
+
+    // One group of 8x8 threads a 32x32 block, each thread 4x4 pixels. Luminance of the encoded values, as
+    // RenoDX measures it, because the cap and the gate are in those units.
+    if (gMode == 6)
+    {
+        const uint index = thread.y * 8 + thread.x;
+        const uint2 base = group.xy * kBlock + thread.xy * 4;
+        float sumN = 0.0;
+        float sumP = 0.0;
+        float maxP = 0.0;
+        uint count = 0;
+
+        for (uint y = 0; y < 4; ++y)
+        {
+            for (uint x = 0; x < 4; ++x)
+            {
+                const uint2 q = base + uint2(x, y);
+
+                if (q.x >= gWidth || q.y >= gHeight)
+                    continue;
+
+                const float lp = dot(kW, max(gProxy.Load(int3(q, 0)).rgb, 0.0));
+                sumN += dot(kW, max(Shaped(int2(q)).rgb, 0.0));
+                sumP += lp;
+                maxP = max(maxP, lp);
+                ++count;
+            }
+        }
+
+        sBlockN[index] = sumN;
+        sBlockP[index] = sumP;
+        sBlockMax[index] = maxP;
+        sBlockCount[index] = count;
+        GroupMemoryBarrierWithGroupSync();
+
+        if (index == 0)
+        {
+            float totalN = 0.0;
+            float totalP = 0.0;
+            float totalMax = 0.0;
+            uint total = 0;
+
+            for (uint i = 0; i < 64; ++i)
+            {
+                totalN += sBlockN[i];
+                totalP += sBlockP[i];
+                totalMax = max(totalMax, sBlockMax[i]);
+                total += sBlockCount[i];
+            }
+
+            const float n = max((float) total, 1.0);
+            gBlocks[group.xy] = float4(totalN / n, totalP / n, totalMax, 0.0);
+        }
+
+        return;
+    }
 
     if (gMode == 5)
     {
         if (id.x >= gWidth || id.y >= gHeight)
             return;
 
-        const Edit x = ReadEdit(pixel);
-        float aB = x.a;
-        float aD = 0.0;
+        float4 value = Shaped(pixel);
 
-        if (gBands != 0)
-        {
-            const float2 ab = Coefficients(pixel);
-            aB = ab.x * x.I + ab.y;
-            aD = x.a - aB;
-        }
+        // The lift is taken off what is written, in the encoded values it was measured in, as RenoDX does.
+        if (gBlackRestore != 0)
+            value.rgb = max(value.rgb - Pedestal(pixel), 0.0);
 
-        const float3 shaped = ShapeEdit(x, aB, aD);
-        gTarget[pixel] = float4(Encode(x.n * exp2(x.t * (shaped - x.e))), x.alpha);
+        gTarget[pixel] = value;
         return;
     }
 

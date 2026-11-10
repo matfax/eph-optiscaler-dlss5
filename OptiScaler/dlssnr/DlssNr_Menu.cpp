@@ -479,8 +479,8 @@ static void LiveSlider(const char* label, CustomOptional<float>* opt, float mn, 
 static void GroupLookAdjust(Config* config)
 {
     ImGui::TextDisabled("Reshapes what the model changed, before anything else sees it. Every value\n"
-                        "acts on the change in stops, not on the picture, so 1 everywhere (0 for the\n"
-                        "limits) is the model's own answer and costs nothing. DirectX 12.");
+                        "acts on the change in stops, not on the picture: 1 everywhere, 0 for the\n"
+                        "limits and the black restore off is the model's own answer. DirectX 12.");
 
     LiveSlider("Result strength", &config->DlssNrLookStrength, 0.0f, 2.0f, 1.0f);
     HelpMarker("All of the model's change at once. 0 is the game's frame, 2 doubles every"
@@ -519,6 +519,31 @@ static void GroupLookAdjust(Config* config)
                "\nmid grey, highlights from about 2.5 above, midtones between, blended over two"
                "\nstops at each crossover. Light and colour change alike.");
 
+    LiveSlider("Shadow max brightening", &config->DlssNrLookShadowMaxBrighten, 0.0f, 4.0f, 0.5f, "%.2f stops");
+    LiveSlider("Shadow max darkening", &config->DlssNrLookShadowMaxDarken, 0.0f, 4.0f, 1.0f, "%.2f stops");
+    HelpMarker("Soft limits on how far the model may brighten or darken a shadow, faded in by"
+               "
+the same zone as Shadows. The model's answer goes back as a ratio, so a tiny"
+               "
+lift in a dark pixel is a large ratio -- this is what keeps shadows from"
+               "
+doubling. 0 means no limit. Defaults 0.5 and 1 stop.");
+
+    static const char* blackNames[] = { "Off", "Near-black areas", "Near-black areas, smooth edge" };
+    int black = (int) std::min(config->DlssNrLookBlackRestore.value_or_default(), 2u);
+    if (ImGui::Combo("Black level restore", &black, blackNames, IM_ARRAYSIZE(blackNames)))
+        config->DlssNrLookBlackRestore = (uint32_t) black;
+
+    HelpMarker("The model lifts black level. In areas that are near-black in the game's own"
+               "
+frame, this measures how much brighter the model made them and takes it off"
+               "
+again (at most 0.025). Not elsewhere: there the difference is the model's real"
+               "
+edit, and taking it off would flicker. The smooth edge fades it out instead of"
+               "
+switching at the threshold (default). From RenoDX's SDR black restore.");
+
     ImGui::SeparatorText("Detail");
 
     LiveSlider("Large-scale tone", &config->DlssNrLookTone, 0.0f, 2.0f, 1.0f);
@@ -553,6 +578,9 @@ static void GroupLookAdjust(Config* config)
         config->DlssNrLookTone = 1.0f;
         config->DlssNrLookDetail = 1.0f;
         config->DlssNrLookDetailRadius = 1.0f;
+        config->DlssNrLookShadowMaxBrighten = 0.5f;
+        config->DlssNrLookShadowMaxDarken = 1.0f;
+        config->DlssNrLookBlackRestore = 2u;
     }
 
     HelpMarker("From RenoDX's DLSS 5 addon (clshortfuse), its look controls without halo"
@@ -1875,7 +1903,15 @@ static void GroupModel(Config* config)
 
     DeferredSlider("Local structure", &config->DlssNrLocalStructure, 0.0f, 2.0f, 1.0f);
 
-    DeferredSlider("Local tone", &config->DlssNrLocalTone, 0.0f, 2.0f, 1.0f);
+    DeferredSlider("Local tone", &config->DlssNrLocalTone, 0.0f, 2.0f, 0.5f);
+
+    HelpMarker("Mostly broad relighting, not detail: the model replaces the game's own darkening"
+               "
+(ambient occlusion, contact shadows) with its own idea of the light. Default 0.5,"
+               "
+as NVIDIA ships it in Hogwarts Legacy (RTX Remix uses 0.3); 1 is the model's own."
+               "
+Local structure is what adds occlusion detail.");
 
 
     DeferredSlider("Skin structure", &config->DlssNrSkinStructure, -1.0f, 2.0f, -1.0f);
