@@ -564,8 +564,10 @@ bool DlssNrEditCache_Dx12::BeginFrame(const Config& cfg, ID3D12Device* device, u
     _colourTol = std::clamp(cfg.DlssNrCacheColourTolerance.value_or_default(), 0.05f, 8.0f);
     _highDecay = std::clamp(cfg.DlssNrCacheHighDecay.value_or_default(), 0.0f, 1.0f);
     _refreshBlend = std::clamp(cfg.DlssNrCacheRefreshBlend.value_or_default(), 0.05f, 1.0f);
-    _lowGain = std::clamp(cfg.DlssNrCacheLowGain.value_or_default(), 0.0f, 4.0f);
-    _highGain = std::clamp(cfg.DlssNrCacheHighGain.value_or_default(), 0.0f, 4.0f);
+    // The band gains are the look stage's tone and detail now (DlssNr_Look_Dx12). It reshapes the model's
+    // answer before the resolve, so the edit captured here already carries them and is carried as it is.
+    _lowGain = 1.0f;
+    _highGain = 1.0f;
     _bilateral = cfg.DlssNrCacheBilateral.value_or_default();
     _stabilize = std::clamp(cfg.DlssNrCacheStabilize.value_or_default(), 0.0f, 4.0f);
     _despeckle = cfg.DlssNrCacheDespeckle.value_or_default();

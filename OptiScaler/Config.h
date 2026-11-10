@@ -312,6 +312,25 @@ class Config
     CustomOptional<float> DlssNrTransferStrength { 1.0f };
     CustomOptional<float> DlssNrColourStrength { 1.0f };
 
+    // The look stage (shaders/dlssnr/DlssNr_Look_Dx12): reshapes the model's edit before the resolve, in
+    // stops. Every default is the identity, and with all of them there the stage does not run. Tone and
+    // Detail replace the edit cache's former CacheLowGain / CacheHighGain, which are still read as their
+    // fallback.
+    CustomOptional<float> DlssNrLookStrength { 1.0f };
+    CustomOptional<float> DlssNrLookBrighten { 1.0f };
+    CustomOptional<float> DlssNrLookDarken { 1.0f };
+    CustomOptional<float> DlssNrLookMaxBrighten { 0.0f }; // stops, 0 = no limit
+    CustomOptional<float> DlssNrLookMaxDarken { 0.0f };
+    CustomOptional<float> DlssNrLookColour { 1.0f };
+    CustomOptional<float> DlssNrLookHue { 1.0f };
+    CustomOptional<float> DlssNrLookMaxColour { 0.0f };
+    CustomOptional<float> DlssNrLookShadows { 1.0f };
+    CustomOptional<float> DlssNrLookMidtones { 1.0f };
+    CustomOptional<float> DlssNrLookHighlights { 1.0f };
+    CustomOptional<float> DlssNrLookTone { 1.0f };
+    CustomOptional<float> DlssNrLookDetail { 1.0f };
+    CustomOptional<float> DlssNrLookDetailRadius { 1.0f }; // percent of the model's working height
+
     // The RenoDX reversible proxy mode. 0 = today's soft-knee encode + our composition (default,
     // byte-identical); 1 = unclipped Neutwo proxy + our composition; 2 = Neutwo proxy + pure-inverse
     // replace. An in-game A/B and a way back. Default 0 = byte-identical to before.
@@ -559,9 +578,6 @@ class Config
     CustomOptional<float> DlssNrCacheHighDecay { 1.0f };
     // On a refresh, the share of the model's new edit taken (1 = all; lower smooths the refresh).
     CustomOptional<float> DlssNrCacheRefreshBlend { 1.0f };
-    // Multi-pass approximation: gains on the low and high bands of the edit, in log space.
-    CustomOptional<float> DlssNrCacheLowGain { 1.0f };
-    CustomOptional<float> DlssNrCacheHighGain { 1.0f };
     // Fill rejected pixels from neighbours on the same surface (depth and luma) rather than nearest.
     CustomOptional<bool> DlssNrCacheBilateral { true };
     // Anti-flicker: the largest step, in stops, a model refresh may make on a pixel that is still the

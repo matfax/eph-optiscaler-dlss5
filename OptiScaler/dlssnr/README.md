@@ -54,6 +54,8 @@ experiment.
 | `shaders/dlssnr/DlssNr_Common.h` | the constant buffer, shared by the host and the shader |
 | `shaders/dlssnr/precompile/dlssnr.hlsl` | **the live shader**: encode (scale and sRGB-encode with a soft knee), area downsample, resolve (RenoDX's two-branch composition, OkLab hue correction, AP1 clamp, the guard) |
 | `shaders/dlssnr/precompile/DlssNr_Shader.h` | that shader compiled, as bytes |
+| `shaders/dlssnr/DlssNr_Look_Dx12.h/.cpp` | the look stage: the model's answer reshaped before the resolve (RenoDX's look controls) |
+| `shaders/dlssnr/precompile/dlssnr_look.hlsl` | its shader: the edit split, the guided-filter tone/detail bands, the gains; `DlssNr_Look_Shader.h` compiled |
 
 ### Editing the shader
 
@@ -65,6 +67,13 @@ cd OptiScaler/shaders/dlssnr/precompile
 python ../../shader_tools/create_header.py DlssNr_Shader.cso DlssNr_Shader.h DlssNr_cso
 ../../shader_tools/dxc.exe -spirv -T cs_6_0 -E CSMain -O3 -Qstrip_debug -D VK_MODE -Cc -Vi dlssnr.hlsl -Fo DlssNr_Shader_Vk.spv
 python ../../shader_tools/create_header.py DlssNr_Shader_Vk.spv DlssNr_Shader_Vk.h dlssnr_spv
+```
+
+The look stage's shader the same way (D3D12 only, no SPIR-V):
+
+```
+../../shader_tools/dxc.exe -T cs_6_0 -E CSMain -O3 -Qstrip_debug -Qstrip_reflect dlssnr_look.hlsl -Fo DlssNr_Look_Shader.cso
+python ../../shader_tools/create_header.py DlssNr_Look_Shader.cso DlssNr_Look_Shader.h DlssNrLook_cso
 ```
 
 **dxc `cs_6_0` (DXIL), not fxc.** The committed `DlssNr_Shader.h` is DXIL: recompiling the source with

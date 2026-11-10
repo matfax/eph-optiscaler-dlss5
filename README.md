@@ -12,6 +12,17 @@ for a fraction of its usual cost and with less flicker. OptiScaler base: `master
 
 NVIDIA's model (`nvngx_dlssnr.dll`) is not included.
 
+## Unreleased
+
+**Adjust the result** (Look): RenoDX's look controls, which reshape what the model changed before the
+resolve, the JBU and the edit cache see it. Result strength; brightening and darkening with soft maximums;
+colour, hue shift and a maximum colour change; shadows, midtones and highlights; and the band split --
+large-scale tone, fine detail and the detail radius where one ends and the other begins (a guided filter,
+so a lit wall's change does not spill onto the dark doorway beside it). All of it in stops of the change,
+not of the picture, so the defaults are the model's own answer and the pass does not run. Tone and detail
+replace the edit cache's lighting and detail gains, now with the cache off too (`CacheLowGain` /
+`CacheHighGain` are read as their fallback). DirectX 12 only.
+
 ## New in 1.3.0
 
 Frame generation got its own section in the DLSS 5 tab, and most of this release is about making NVIDIA's
@@ -210,7 +221,7 @@ Visual Studio 2026 Build Tools (toolset v145):
 msbuild OptiScaler\OptiScaler.vcxproj /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v145
 ```
 
-The cache shader is compiled with `fxc`, the composition shader with `dxc`: see
+The cache shader is compiled with `fxc`, the composition and look shaders with `dxc`: see
 [OptiScaler/dlssnr/README.md](OptiScaler/dlssnr/README.md) and
 [OptiScaler/dlssnr/design/edit-cache.md](OptiScaler/dlssnr/design/edit-cache.md).
 `deploy/install.py` installs a build into a game.
@@ -222,7 +233,8 @@ GPL-3.0, like OptiScaler. The original OptiScaler README is in
 
 - OptiScaler: cdozdil and the OptiScaler team.
 - DLSS 5 Neural Rendering integration: Dagherbou.
-- Colour composition taken from the RenoDX DLSS 5 add-on (clshortfuse, MIT license): see
+- Colour composition and the look controls taken from the RenoDX DLSS 5 add-on (clshortfuse, MIT license;
+  the look stage as maintained in williamstosh/RenoDX-DLSSNR-Nexus): see
   [Licenses/RenoDX_ATTRIBUTION.txt](Licenses/RenoDX_ATTRIBUTION.txt).
 
 Unofficial project, not affiliated with NVIDIA. It uses an undocumented driver feature;

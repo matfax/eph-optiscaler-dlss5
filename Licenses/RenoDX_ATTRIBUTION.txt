@@ -33,6 +33,27 @@ from RenoDX's DLSS 5 Neural Rendering addon. Specifically:
 This is their design. It was reimplemented here with different names and
 comments, which does not make it original work, and it is credited as theirs.
 
+The look stage in OptiScaler/shaders/dlssnr/precompile/dlssnr_look.hlsl (and its
+host, OptiScaler/shaders/dlssnr/DlssNr_Look_Dx12.cpp) is taken from the same
+addon's look stage, as maintained in
+https://github.com/williamstosh/RenoDX-DLSSNR-Nexus (look_common.hlsli,
+look_band.cs_5_1.hlsl, look_compose.cs_5_1.hlsl, look_stage.hpp):
+
+  * The edit as log2(answer / proxy) per channel, split into an achromatic part
+    (the luminance-weighted mean) and an opponent part, and written back as
+    answer * 2^(trust * (edit' - edit)) with the proxy's floor trust.
+
+  * The band split of the achromatic edit: a fast guided filter guided by the
+    proxy's log luminance, its coefficients at half resolution over a box of the
+    detail radius (a percentage of the working height), and the regularisation.
+
+  * The gain shaping: tone and detail on the two bands, brightening and darkening
+    on the sign, colour and hue on the radial and tangential parts of the colour
+    edit, the shadows / midtones / highlights zones, strength, and the tanh soft
+    limits.
+
+Its halo suppression and temporal stabilisation were not taken.
+
 What is not derived from it
 ---------------------------
 

@@ -458,6 +458,107 @@ static void SectionQuickSetup(Config* config)
 }
 
 // Look: how much of the model's edit lands, and where.
+// A slider that applies while it is dragged, with a reset beside it: for shader constants, which cost nothing
+// to change every frame.
+static void LiveSlider(const char* label, CustomOptional<float>* opt, float mn, float mx, float def,
+                       const char* fmt = "%.2f")
+{
+    float value = opt->value_or_default();
+
+    if (ImGui::SliderFloat(label, &value, mn, mx, fmt))
+        *opt = std::clamp(value, mn, mx);
+
+    ImGui::SameLine();
+
+    const std::string resetId = std::string("Reset##") + label;
+    if (ImGui::SmallButton(resetId.c_str()))
+        *opt = def;
+}
+
+// The look stage (shaders/dlssnr/DlssNr_Look_Dx12): the model's edit reshaped before the resolve, in stops.
+static void GroupLookAdjust(Config* config)
+{
+    ImGui::TextDisabled("Reshapes what the model changed, before anything else sees it. Every value\n"
+                        "acts on the change in stops, not on the picture, so 1 everywhere (0 for the\n"
+                        "limits) is the model's own answer and costs nothing. DirectX 12.");
+
+    LiveSlider("Result strength", &config->DlssNrLookStrength, 0.0f, 2.0f, 1.0f);
+    HelpMarker("All of the model's change at once. 0 is the game's frame, 2 doubles every"
+               "\nstop the model moved.");
+
+    ImGui::SeparatorText("Light");
+
+    LiveSlider("Brightening", &config->DlssNrLookBrighten, 0.0f, 2.0f, 1.0f);
+    LiveSlider("Darkening", &config->DlssNrLookDarken, 0.0f, 2.0f, 1.0f);
+    HelpMarker("Where the model lightens and where it darkens, separately. Darkening below 1"
+               "\nholds back the deep shadows it can add; brightening below 1 its glow.");
+
+    LiveSlider("Max brightening", &config->DlssNrLookMaxBrighten, 0.0f, 4.0f, 0.0f, "%.2f stops");
+    LiveSlider("Max darkening", &config->DlssNrLookMaxDarken, 0.0f, 4.0f, 0.0f, "%.2f stops");
+    HelpMarker("Soft ceilings: a change approaching the limit is rolled off rather than cut."
+               "\n0 means no limit, not no change.");
+
+    ImGui::SeparatorText("Colour");
+
+    LiveSlider("Colour", &config->DlssNrLookColour, 0.0f, 2.0f, 1.0f);
+    HelpMarker("How much the model makes colours more or less saturated.");
+
+    LiveSlider("Hue shift", &config->DlssNrLookHue, 0.0f, 2.0f, 1.0f);
+    HelpMarker("How much the model tints colours toward another hue. 0 keeps every colour's"
+               "\nown hue while it still saturates or desaturates it.");
+
+    LiveSlider("Max colour change", &config->DlssNrLookMaxColour, 0.0f, 2.0f, 0.0f, "%.2f stops");
+    HelpMarker("A soft limit on the colour change. 0 means no limit.");
+
+    ImGui::SeparatorText("Shadows, midtones, highlights");
+
+    LiveSlider("Shadows", &config->DlssNrLookShadows, 0.0f, 2.0f, 1.0f);
+    LiveSlider("Midtones", &config->DlssNrLookMidtones, 0.0f, 2.0f, 1.0f);
+    LiveSlider("Highlights", &config->DlssNrLookHighlights, 0.0f, 2.0f, 1.0f);
+    HelpMarker("The change by how bright the pixel was: shadows below about 3.5 stops under"
+               "\nmid grey, highlights from about 2.5 above, midtones between, blended over two"
+               "\nstops at each crossover. Light and colour change alike.");
+
+    ImGui::SeparatorText("Detail");
+
+    LiveSlider("Large-scale tone", &config->DlssNrLookTone, 0.0f, 2.0f, 1.0f);
+    HelpMarker("The broad part of the change: the lighting the model adds or takes away over"
+               "\nwhole surfaces. Replaces the edit cache's former lighting gain.");
+
+    LiveSlider("Fine detail", &config->DlssNrLookDetail, 0.0f, 2.0f, 1.0f);
+    HelpMarker("The fine part of the change: texture and micro-contrast. Replaces the edit"
+               "\ncache's former detail gain.");
+
+    LiveSlider("Detail radius", &config->DlssNrLookDetailRadius, 0.25f, 4.0f, 1.0f, "%.2f %%");
+    HelpMarker("Where tone ends and detail begins, in percent of the picture's height. Only"
+               "\nused when tone or detail is not 1. The split follows the picture's own edges"
+               "\n(a guided filter), so a lit wall's change does not spill onto the dark doorway"
+               "\nbeside it.");
+
+    ImGui::Spacing();
+
+    if (ImGui::SmallButton("Reset all##look"))
+    {
+        config->DlssNrLookStrength = 1.0f;
+        config->DlssNrLookBrighten = 1.0f;
+        config->DlssNrLookDarken = 1.0f;
+        config->DlssNrLookMaxBrighten = 0.0f;
+        config->DlssNrLookMaxDarken = 0.0f;
+        config->DlssNrLookColour = 1.0f;
+        config->DlssNrLookHue = 1.0f;
+        config->DlssNrLookMaxColour = 0.0f;
+        config->DlssNrLookShadows = 1.0f;
+        config->DlssNrLookMidtones = 1.0f;
+        config->DlssNrLookHighlights = 1.0f;
+        config->DlssNrLookTone = 1.0f;
+        config->DlssNrLookDetail = 1.0f;
+        config->DlssNrLookDetailRadius = 1.0f;
+    }
+
+    HelpMarker("From RenoDX's DLSS 5 addon (clshortfuse), its look controls without halo"
+               "\nsuppression and stabilisation.");
+}
+
 static void SectionLook(Config* config)
 {
     float transfer = config->DlssNrTransferStrength.value_or_default();
@@ -2757,27 +2858,8 @@ static void GroupAdvancedCache(Config* config)
                "\nat a similar depth and brightness, rather than from whatever is nearest. Keeps"
                "\na character's edit off the wall behind them.");
 
-    float lowGain = config->DlssNrCacheLowGain.value_or_default();
-
-    if (ImGui::SliderFloat("Lighting gain", &lowGain, 0.0f, 3.0f, "%.2f"))
-        config->DlssNrCacheLowGain = std::clamp(lowGain, 0.0f, 4.0f);
-
-    float highGain = config->DlssNrCacheHighGain.value_or_default();
-
-    if (ImGui::SliderFloat("Detail gain", &highGain, 0.0f, 3.0f, "%.2f"))
-        config->DlssNrCacheHighGain = std::clamp(highGain, 0.0f, 4.0f);
-
-    if (ImGui::SmallButton("Reset##cachegains"))
-    {
-        config->DlssNrCacheLowGain = 1.0f;
-        config->DlssNrCacheHighGain = 1.0f;
-    }
-
-    HelpMarker("Multi-pass, approximated: amplifies the model's single-pass edit instead of"
-               "\nrunning it twice, for free. The lighting (broad) and detail (fine) parts get"
-               "\nseparate gains, in log space, so 2 doubles the edit's effect in stops rather than"
-               "\nits brightness. 1 and 1 is one pass; tools/dlssnr_cache/calibrate_multipass.py"
-               "\nfits them to real one-pass and two-pass captures.");
+    ImGui::TextDisabled("The lighting and detail gains moved to Look > Adjust the result, as large-scale\n"
+                        "tone and fine detail. They work with the cache off too now.");
 }
 
 // Developer tools: model creation, the cache's debug views and the measurement dump.
@@ -2859,6 +2941,12 @@ void RenderMenu(Config* config, float menuResScale)
 
         ImGui::SeparatorText("Look");
         SectionLook(config);
+
+        if (BeginGroup("Adjust the result (light, colour, tone, detail)"))
+        {
+            GroupLookAdjust(config);
+            ImGui::TreePop();
+        }
 
         ImGui::SeparatorText("Frame generation");
         SectionFrameGen(config);

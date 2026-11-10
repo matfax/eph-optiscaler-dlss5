@@ -311,6 +311,23 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrPreSrReduced.set_from_config(readBool("DlssNr", "PreSrReduced"));
             DlssNrTransferStrength.set_from_config(readFloat("DlssNr", "TransferStrength"));
             DlssNrColourStrength.set_from_config(readFloat("DlssNr", "ColourStrength"));
+            DlssNrLookStrength.set_from_config(readFloat("DlssNr", "LookStrength"));
+            DlssNrLookBrighten.set_from_config(readFloat("DlssNr", "LookBrighten"));
+            DlssNrLookDarken.set_from_config(readFloat("DlssNr", "LookDarken"));
+            DlssNrLookMaxBrighten.set_from_config(readFloat("DlssNr", "LookMaxBrighten"));
+            DlssNrLookMaxDarken.set_from_config(readFloat("DlssNr", "LookMaxDarken"));
+            DlssNrLookColour.set_from_config(readFloat("DlssNr", "LookColour"));
+            DlssNrLookHue.set_from_config(readFloat("DlssNr", "LookHue"));
+            DlssNrLookMaxColour.set_from_config(readFloat("DlssNr", "LookMaxColour"));
+            DlssNrLookShadows.set_from_config(readFloat("DlssNr", "LookShadows"));
+            DlssNrLookMidtones.set_from_config(readFloat("DlssNr", "LookMidtones"));
+            DlssNrLookHighlights.set_from_config(readFloat("DlssNr", "LookHighlights"));
+            DlssNrLookTone.set_from_config(readFloat("DlssNr", "LookTone"));
+            DlssNrLookDetail.set_from_config(readFloat("DlssNr", "LookDetail"));
+            DlssNrLookDetailRadius.set_from_config(readFloat("DlssNr", "LookDetailRadius"));
+            // The edit cache's former multi-pass gains, now the look's tone and detail.
+            DlssNrLookTone.set_from_config(readFloat("DlssNr", "CacheLowGain"));
+            DlssNrLookDetail.set_from_config(readFloat("DlssNr", "CacheHighGain"));
             DlssNrMaxRatio.set_from_config(readFloat("DlssNr", "MaxRatio"));
             DlssNrTransfer.set_from_config(readUInt("DlssNr", "Transfer"));
 
@@ -369,8 +386,6 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrCacheColourTolerance.set_from_config(readFloat("DlssNr", "CacheColourTolerance"));
             DlssNrCacheHighDecay.set_from_config(readFloat("DlssNr", "CacheHighDecay"));
             DlssNrCacheRefreshBlend.set_from_config(readFloat("DlssNr", "CacheRefreshBlend"));
-            DlssNrCacheLowGain.set_from_config(readFloat("DlssNr", "CacheLowGain"));
-            DlssNrCacheHighGain.set_from_config(readFloat("DlssNr", "CacheHighGain"));
             DlssNrCacheBilateral.set_from_config(readBool("DlssNr", "CacheBilateral"));
             DlssNrCacheStabilize.set_from_config(readFloat("DlssNr", "CacheStabilize"));
             DlssNrCacheDespeckle.set_from_config(readBool("DlssNr", "CacheDespeckle"));
@@ -1279,6 +1294,23 @@ bool Config::SaveIni()
                  GetFloatValue(Instance()->DlssNrTransferStrength.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ColourStrength",
                  GetFloatValue(Instance()->DlssNrColourStrength.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookStrength", GetFloatValue(Instance()->DlssNrLookStrength.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookBrighten", GetFloatValue(Instance()->DlssNrLookBrighten.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookDarken", GetFloatValue(Instance()->DlssNrLookDarken.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookMaxBrighten",
+                 GetFloatValue(Instance()->DlssNrLookMaxBrighten.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookMaxDarken", GetFloatValue(Instance()->DlssNrLookMaxDarken.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookColour", GetFloatValue(Instance()->DlssNrLookColour.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookHue", GetFloatValue(Instance()->DlssNrLookHue.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookMaxColour", GetFloatValue(Instance()->DlssNrLookMaxColour.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookShadows", GetFloatValue(Instance()->DlssNrLookShadows.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookMidtones", GetFloatValue(Instance()->DlssNrLookMidtones.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookHighlights",
+                 GetFloatValue(Instance()->DlssNrLookHighlights.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookTone", GetFloatValue(Instance()->DlssNrLookTone.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookDetail", GetFloatValue(Instance()->DlssNrLookDetail.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "LookDetailRadius",
+                 GetFloatValue(Instance()->DlssNrLookDetailRadius.value_for_config()).c_str());
     ini.SetValue("DlssNr", "MaxRatio", GetFloatValue(Instance()->DlssNrMaxRatio.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Transfer", GetIntValue(Instance()->DlssNrTransfer.value_for_config()).c_str());
 
@@ -1347,8 +1379,6 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "CacheHighDecay", GetFloatValue(Instance()->DlssNrCacheHighDecay.value_for_config()).c_str());
     ini.SetValue("DlssNr", "CacheRefreshBlend",
                  GetFloatValue(Instance()->DlssNrCacheRefreshBlend.value_for_config()).c_str());
-    ini.SetValue("DlssNr", "CacheLowGain", GetFloatValue(Instance()->DlssNrCacheLowGain.value_for_config()).c_str());
-    ini.SetValue("DlssNr", "CacheHighGain", GetFloatValue(Instance()->DlssNrCacheHighGain.value_for_config()).c_str());
     ini.SetValue("DlssNr", "CacheBilateral", GetBoolValue(Instance()->DlssNrCacheBilateral.value_for_config()).c_str());
     ini.SetValue("DlssNr", "CacheStabilize", GetFloatValue(Instance()->DlssNrCacheStabilize.value_for_config()).c_str());
     ini.SetValue("DlssNr", "CacheDespeckle", GetBoolValue(Instance()->DlssNrCacheDespeckle.value_for_config()).c_str());

@@ -13,6 +13,7 @@
 
 #include "DlssNr_Dx12.h"
 #include "DlssNr_EditCache_Dx12.h"
+#include "DlssNr_Look_Dx12.h"
 #include "DlssNr_Shot_Dx12.h"
 
 #include <Config.h>
@@ -410,6 +411,10 @@ std::unique_ptr<DlssNr_Dx12> g_compose;
 // use only -- with both options off nothing of it exists.
 std::unique_ptr<DlssNrEditCache_Dx12> g_cache;
 
+// The look stage: reshapes the model's answer before anything reads it. Created the first time a look setting
+// leaves its identity; until then nothing of it exists.
+std::unique_ptr<DlssNrLook_Dx12> g_look;
+
 // CacheAsync: the model on a compute queue of our own, in parallel with the game's frame. See AsyncLaunch for
 // the frame-by-frame flow. Nothing of it exists until it is switched on.
 struct AsyncState
@@ -516,6 +521,29 @@ bool EffCache(const Config& cfg) { return ActiveCompare() != 1 && cfg.DlssNrCach
 float EffWorkScale(const Config& cfg) { return ActiveCompare() == 1 ? 1.0f : cfg.DlssNrWorkingScale.value_or_default(); }
 
 bool EffJbu(const Config& cfg) { return ActiveCompare() != 1 && cfg.DlssNrJbuUpsample.value_or_default(); }
+
+// The model's answer as the look shaped it, or `answer` itself when the look is the identity or failed.
+// `proxy` in NON_PIXEL_SHADER_RESOURCE, `answer` in UNORDERED_ACCESS; whatever is returned is in
+// UNORDERED_ACCESS, and `answer` is left there too.
+ID3D12Resource* ShapeAnswer(ID3D12GraphicsCommandList* cmdList, ID3D12Device* device, const Config& cfg,
+                            ID3D12Resource* proxy, ID3D12Resource* answer, unsigned int width, unsigned int height,
+                            bool passthrough)
+{
+    const DlssNrLookSettings look = DlssNrLookSettings::FromConfig(cfg);
+
+    // Everywhere, vanilla included, like the style: it is a look, not an optimisation.
+    if (look.Neutral())
+        return answer;
+
+    if (g_look == nullptr)
+        g_look = std::make_unique<DlssNrLook_Dx12>(device);
+
+    if (g_look == nullptr || !g_look->IsInit())
+        return answer;
+
+    ID3D12Resource* shaped = g_look->Apply(cmdList, device, look, proxy, answer, width, height, passthrough);
+    return shaped != nullptr ? shaped : answer;
+}
 
 // The benchmark's style and pass-count phases override these two for the length of a phase.
 int g_benchStyle = -1;
@@ -825,6 +853,34 @@ void CheckCaptureTrigger()
             else if (k == "CacheStillHold") c->DlssNrCacheStillHold = b;
             else if (k == "CacheAntiPop") c->DlssNrCacheAntiPop = b;
             else if (k == "CacheAntiPopRate") c->DlssNrCacheAntiPopRate = v;
+            else if (k == "LookStrength")
+                c->DlssNrLookStrength = v;
+            else if (k == "LookBrighten")
+                c->DlssNrLookBrighten = v;
+            else if (k == "LookDarken")
+                c->DlssNrLookDarken = v;
+            else if (k == "LookMaxBrighten")
+                c->DlssNrLookMaxBrighten = v;
+            else if (k == "LookMaxDarken")
+                c->DlssNrLookMaxDarken = v;
+            else if (k == "LookColour")
+                c->DlssNrLookColour = v;
+            else if (k == "LookHue")
+                c->DlssNrLookHue = v;
+            else if (k == "LookMaxColour")
+                c->DlssNrLookMaxColour = v;
+            else if (k == "LookShadows")
+                c->DlssNrLookShadows = v;
+            else if (k == "LookMidtones")
+                c->DlssNrLookMidtones = v;
+            else if (k == "LookHighlights")
+                c->DlssNrLookHighlights = v;
+            else if (k == "LookTone")
+                c->DlssNrLookTone = v;
+            else if (k == "LookDetail")
+                c->DlssNrLookDetail = v;
+            else if (k == "LookDetailRadius")
+                c->DlssNrLookDetailRadius = v;
             else
             {
                 LOG_WARN("DLSS-NR dlssnr-set.txt: unknown key {}", k);
@@ -4287,16 +4343,19 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
                 constexpr auto read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
                 constexpr auto rest = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
                 ID3D12Resource* proxy = g_async.heldInput;
-                ID3D12Resource* answer = g_async.output;
+                // The look, as on a frame the model runs: the answer reshaped before the JBU and the compose.
+                ID3D12Resource* shaped = ShapeAnswer(cmdList, device, cfg, g_async.heldInput, g_async.output,
+                                                     g_async.workW, g_async.workH, !isHdrBuffer);
+                ID3D12Resource* answer = shaped;
                 bool jbuOk = false;
 
-                Barrier(cmdList, g_async.output, rest, read);
+                Barrier(cmdList, shaped, rest, read);
 
                 if (g_async.reduced && EffJbu(cfg))
                 {
-                    if (ID3D12Resource* up = g_cache->UpsampleModel(cmdList, device, g_nr.colorCopy, g_async.heldInput,
-                                                                    g_async.output, !isHdrBuffer,
-                                                                    cfg.DlssNrJbuSigma.value_or_default()))
+                    if (ID3D12Resource* up =
+                            g_cache->UpsampleModel(cmdList, device, g_nr.colorCopy, g_async.heldInput, shaped,
+                                                   !isHdrBuffer, cfg.DlssNrJbuSigma.value_or_default()))
                     {
                         proxy = g_nr.colorCopy;
                         answer = up;
@@ -4306,7 +4365,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
 
                 DispatchPass(cmdList, composeParams(g_async.whitePoint), proxy, answer, g_nr.hdrCopy, motionIn,
                              exposureTex, g_async.composed, nullptr);
-                Barrier(cmdList, g_async.output, read, rest);
+                Barrier(cmdList, shaped, read, rest);
 
                 if (jbuOk)
                     g_cache->FinishUpsample(cmdList);
@@ -4825,18 +4884,21 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
                      composeNow.workH, composeNow.debugView, composeNow.compareMode);
         }
 
-        Barrier(cmdList, g_nr.output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        // The look: the model's answer reshaped before the down-leg, the JBU, the resolve and the cache see it.
+        ID3D12Resource* answer =
+            ShapeAnswer(cmdList, device, cfg, modelInput, g_nr.output, workWidth, workHeight, !isHdrBuffer);
+
+        Barrier(cmdList, answer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 
         // Supersampling down-leg. Average the Nx model answer back to native with the chosen filter, so
         // the resolve composites a native answer against the native proxy 1:1 -- a real area resample,
         // not the single bilinear tap the Nx answer would otherwise get in the resolve (which aliases
         // the model's detail into noise, the "noisier above 100%" the probe showed). On success the
         // resolve reads the native proxy (colorCopy) and native answer (outputNative); on failure it
-        // falls back to the Nx pair. g_nr.output is NPSR here; outputNative is UAV from last frame.
+        // falls back to the Nx pair. The answer is NPSR here; outputNative is UAV from last frame.
         bool superDownOk = false;
         if (workScale > 1.0f && g_nr.superDown != nullptr && g_nr.outputNative != nullptr &&
-            g_nr.superDown->Dispatch(cmdList, g_nr.output, g_nr.outputNative))
+            g_nr.superDown->Dispatch(cmdList, answer, g_nr.outputNative))
         {
             Barrier(cmdList, g_nr.outputNative, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -4844,7 +4906,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         }
 
         ID3D12Resource* resolveProxy = superDownOk ? g_nr.colorCopy : modelInput;
-        ID3D12Resource* resolveAnswer = superDownOk ? g_nr.outputNative : g_nr.output;
+        ID3D12Resource* resolveAnswer = superDownOk ? g_nr.outputNative : answer;
 
         // Joint bilateral enlargement, when asked for and the model ran below the frame: the model's
         // residual is brought to full size guided by the full-size proxy, and the resolve then sees
@@ -4859,7 +4921,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
 
             if (g_cache != nullptr && g_cache->IsInit())
             {
-                if (ID3D12Resource* up = g_cache->UpsampleModel(cmdList, device, g_nr.colorCopy, modelInput, g_nr.output,
+                if (ID3D12Resource* up = g_cache->UpsampleModel(cmdList, device, g_nr.colorCopy, modelInput, answer,
                                                                 !isHdrBuffer, cfg.DlssNrJbuSigma.value_or_default()))
                 {
                     resolveProxy = g_nr.colorCopy;
@@ -4871,8 +4933,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
 
         DispatchPass(cmdList, resolveParams, resolveProxy, resolveAnswer, g_nr.hdrCopy, motionIn, exposureTex, target,
                      nullptr);
-        Barrier(cmdList, g_nr.output, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        Barrier(cmdList, answer, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
         if (jbuOk)
             g_cache->FinishUpsample(cmdList);
@@ -6705,6 +6766,7 @@ void Shutdown()
 
     g_capture.release();
     g_cache.reset();
+    g_look.reset();
     g_avgGpuTime = 0.0;
     g_gpuTime.reset();
     g_ngxTime.reset();
